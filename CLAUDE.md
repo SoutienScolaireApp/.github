@@ -39,7 +39,7 @@ Fix a pipeline once, all repositories benefit. Workflows are **parameterised, no
 1. **No confidential content, ever.**
 2. **No secret in a workflow**, and no workflow that echoes a secret into logs. `pull_request_target` is forbidden unless a specific need is documented and reviewed: it runs with write permissions against untrusted code.
 3. **Least privilege**: every workflow declares explicit `permissions:` rather than inheriting the default write-all token.
-4. **The public landing page is communication.** Its wording requires Jonathan's approval; it is not written by an agent on its own initiative.
+4. **The public landing page is communication.** Its wording requires Céline's approval; it is not written by an agent on its own initiative.
 
 ## Templates: the expected shape
 
@@ -63,4 +63,4 @@ Every reusable workflow documents its inputs, its expectations of the calling re
 
 - Never commit anything you would not publish on the open internet.
 - Never grant a workflow more permissions than the job requires.
-- Never publish content about the organization or the product without Jonathan's approval.
+- Never publish content about the organization or the product without Céline's approval.
