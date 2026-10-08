@@ -1,0 +1,17 @@
+name: Add contribution issues to the board
+
+on:
+  issues:
+    types: [opened, reopened, transferred, labeled]
+
+# The shared workflow authenticates as the organization's GitHub App: the
+# workflow token needs no permission.
+permissions: {}
+
+# In this repository the shared workflow is referenced by its local path, so a
+# caller and the workflow it calls always come from the same commit. Other
+# repositories reference it with `@develop`.
+jobs:
+  add-to-project:
+    uses: ./.github/workflows/add-to-project.yml
+    secrets: inherit
