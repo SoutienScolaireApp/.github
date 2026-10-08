@@ -1,0 +1,47 @@
+name: Add contribution issues to the board (shared)
+
+# Reusable workflow: adds the triggering issue to the organization board
+# (project #1, the single source of the contribution journal) only when it
+# carries the `contribution` label. Ordinary issues and product sub-issues
+# stay off the board.
+#
+# Callers trigger it on `issues` events and pass `secrets: inherit`. The
+# `github` and `vars` contexts are the caller's, so the issue payload and the
+# organization variable are read from the calling repository.
+on:
+  workflow_call:
+    secrets:
+      AUTOMATION_APP_PRIVATE_KEY:
+        description: Private key of the organization automation GitHub App.
+        required: true
+
+# The job authenticates as the organization's GitHub App, so the workflow
+# token needs no permission at all.
+permissions: {}
+
+jobs:
+  add-to-project:
+    # Skip the runner entirely for issues without the label: no token is
+    # minted for them.
+    if: contains(github.event.issue.labels.*.name, 'contribution')
+    runs-on: ubuntu-latest
+    steps:
+      # Mints a short-lived installation token (valid one hour) scoped to the
+      # organization installation. Actions are pinned by commit SHA: a tag can
+      # be moved, a SHA cannot.
+      - name: Mint an installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      # The `labeled` filter repeats the job condition on purpose: the action
+      # itself refuses any issue without the label.
+      - name: Add the issue to the board
+        uses: actions/add-to-project@5afcf98fcd03f1c2f92c3c83f58ae24323cc57fd # v2.0.0
+        with:
+          project-url: https://github.com/orgs/SoutienScolaireApp/projects/1
+          github-token: ${{ steps.app-token.outputs.token }}
+          labeled: contribution
