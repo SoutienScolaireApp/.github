@@ -64,3 +64,28 @@ Every reusable workflow documents its inputs, its expectations of the calling re
 - Never commit anything you would not publish on the open internet.
 - Never grant a workflow more permissions than the job requires.
 - Never publish content about the organization or the product without Céline's approval.
+
+## Task tracking (ADR-010)
+
+Every task in this repository is a **sub-issue of a card** on the organization board (`https://github.com/orgs/SoutienScolaireApp/projects/1`): a lot card (`A6.lot.L0` to `L9`, issues in `docs`), a lot planning card, or a task card in `journal`. Points live on the card, never on the task. Full rule: `adr/ADR-010-contribution-tracking.md` in the `docs` repository.
+
+Before starting a task:
+
+1. **Identify the parent card**, usually the lot in progress. If no card fits (unplanned fix, new request), stop and ask Céline: the work must first be costed as a card of its own at the weekly meeting.
+2. **Check that the card is costed**: `Points` and `Chiffré le` are set. Otherwise, do not start: work executed before costing falls back to the day-based count.
+
+```bash
+gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){title projectItems(first:5){nodes{status:fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}} points:fieldValueByName(name:"Points"){... on ProjectV2ItemFieldNumberValue{number}} costed:fieldValueByName(name:"Chiffré le"){... on ProjectV2ItemFieldDateValue{date}}}}}}}' -f o=SoutienScolaireApp -f r=docs -F n=<card>
+```
+
+3. **Open the task as an issue in this repository**, without the `contribution` label and without adding it to the board, then attach it to the card (the `gh` CLI cannot do it, use GraphQL):
+
+```bash
+PARENT=$(gh issue view <card> -R SoutienScolaireApp/docs --json id -q .id)
+gh api graphql -f query='mutation($p:ID!,$u:String!){addSubIssue(input:{issueId:$p,subIssueUrl:$u}){subIssue{number}}}' \
+  -f p="$PARENT" -f u="https://github.com/SoutienScolaireApp/<repo>/issues/<n>"
+```
+
+Then the usual cycle applies to the sub-issue: dedicated worktree, pull request `Closes #<n>`, green CI, squash merge after Céline's approval.
+
+An agent **never** edits `Points`, `Chiffré le`, `Accepté le`, `Contesté` or `Bénéficiaire` (those are set in session between the Parties), never adds a sub-issue to the board, never puts the `contribution` label on a sub-issue, and never creates a card carrying points on its own initiative. Issues, pull requests and merges are made from the contributor's own GitHub account: a squash commit takes the pull request author as its author.
