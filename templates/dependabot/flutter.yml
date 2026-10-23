@@ -1,6 +1,6 @@
 # SchoolEngine Dependabot template: flutter
 # Flutter repository (mobile-app).
-# Copy to .github/dependabot.yml. Rules: DEPENDABOT.md in SchoolEngine/.github.
+# Copy to .github/dependabot.yml. Rules: DEPENDABOT.md in SoutienScolaireApp/.github.
 version: 2
 
 updates:
@@ -59,7 +59,7 @@ updates:
           - "minor"
           - "patch"
     # Generated API client: git-tag dependency on the private contracts
-    # repository (ADR-013, SchoolEngine/architecture#6), bumped by the contract
+    # repository (ADR-013, SoutienScolaireApp/architecture#6), bumped by the contract
     # change procedure, not by Dependabot, until ADR-013 says otherwise.
     ignore:
       - dependency-name: "usc_api_client"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Table test of scripts/apply-ruleset.sh (SchoolEngine/.github#23), without
 # network: `gh` is a stub that serves one organisation ruleset (id 1,
-# `protect-develop`) and one repository ruleset of SchoolEngine/contracts
+# `protect-develop`) and one repository ruleset of SoutienScolaireApp/contracts
 # (id 2, `protect-release-tags`), and records every write it receives.
 #
 # Usage: tests/apply-ruleset/run.sh   (needs jq)
@@ -28,10 +28,10 @@ echo "gh $*" >>"$GH_STUB_LOG"
 [[ "$1" == "api" ]] || exit 3
 shift
 case "$*" in
-  "orgs/SchoolEngine/rulesets --paginate") jq -c '[{id, name}]' "$GH_STUB_DIR/live-org.json" ;;
-  "orgs/SchoolEngine/rulesets/1") cat "$GH_STUB_DIR/live-org.json" ;;
-  "repos/SchoolEngine/contracts/rulesets?includes_parents=false --paginate") jq -c '[{id, name}]' "$GH_STUB_DIR/live-repo.json" ;;
-  "repos/SchoolEngine/contracts/rulesets/2") cat "$GH_STUB_DIR/live-repo.json" ;;
+  "orgs/SoutienScolaireApp/rulesets --paginate") jq -c '[{id, name}]' "$GH_STUB_DIR/live-org.json" ;;
+  "orgs/SoutienScolaireApp/rulesets/1") cat "$GH_STUB_DIR/live-org.json" ;;
+  "repos/SoutienScolaireApp/contracts/rulesets?includes_parents=false --paginate") jq -c '[{id, name}]' "$GH_STUB_DIR/live-repo.json" ;;
+  "repos/SoutienScolaireApp/contracts/rulesets/2") cat "$GH_STUB_DIR/live-repo.json" ;;
   -X\ PUT\ *|-X\ POST\ *) echo "write recorded" ;;
   *) echo "stub: unexpected call: gh api $*" >&2; exit 4 ;;
 esac
@@ -74,10 +74,10 @@ expect 0 "file matches live: nothing to do" - -- "$root/rulesets/protect-develop
 expect 0 "file matches live, --apply: no write" - -- --apply "$root/rulesets/protect-develop.json"
 changed=$(ruleset '.enforcement = "evaluate"' changed.json)
 expect 0 "file differs: dry-run writes nothing" - -- "$changed"
-expect 0 "file differs, --apply: PUT on the organisation ruleset" "PUT orgs/SchoolEngine/rulesets/1" -- --apply "$changed"
+expect 0 "file differs, --apply: PUT on the organisation ruleset" "PUT orgs/SoutienScolaireApp/rulesets/1" -- --apply "$changed"
 created=$(ruleset '.name = "new-ruleset"' created.json)
 expect 0 "unknown name: dry-run writes nothing" - -- "$created"
-expect 0 "unknown name, --apply: POST" "POST orgs/SchoolEngine/rulesets" -- --apply "$created"
+expect 0 "unknown name, --apply: POST" "POST orgs/SoutienScolaireApp/rulesets" -- --apply "$created"
 
 echo "== Refusals"
 expect 1 "no bypass_actors key" - -- --apply "$(ruleset 'del(.bypass_actors) | .enforcement = "evaluate"' nobypasskey.json)"
@@ -90,10 +90,10 @@ done
 expect 1 "not a ruleset" - -- "$(ruleset '{name}' notruleset.json)"
 bypass=$(ruleset '.bypass_actors = [{"actor_id": 15368, "actor_type": "Integration", "bypass_mode": "always"}]' bypass.json)
 expect 1 "bypass actor without --allow-bypass" - -- --apply "$bypass"
-expect 0 "bypass actor with --allow-bypass, --apply" "PUT orgs/SchoolEngine/rulesets/1" -- --apply --allow-bypass "$bypass"
+expect 0 "bypass actor with --allow-bypass, --apply" "PUT orgs/SoutienScolaireApp/rulesets/1" -- --apply --allow-bypass "$bypass"
 bypass_case() {
   local want=$1 label=$2 actor=$3 write=-
-  [[ "$want" -ne 0 ]] || write="PUT orgs/SchoolEngine/rulesets/1"
+  [[ "$want" -ne 0 ]] || write="PUT orgs/SoutienScolaireApp/rulesets/1"
   expect "$want" "$label" "$write" -- --apply --allow-bypass "$(ruleset ".bypass_actors = [$actor]" actor.json)"
 }
 for id in 0 '"0"' '""' -5 1.5 null; do
@@ -110,21 +110,21 @@ bypass_case 0 "OrganizationAdmin (actor_id 1, ignored by the API) accepted" '{"a
 bypass_case 0 "Team with a positive integer id accepted" '{"actor_id": 7, "actor_type": "Team", "bypass_mode": "pull_request"}'
 repo_placeholder=$(repo_ruleset '.bypass_actors = [{"actor_id": 0, "actor_type": "Integration", "bypass_mode": "always"}]' repo-placeholder.json)
 expect 1 "repository ruleset with a placeholder bypass actor" \
-  - -- --apply --allow-bypass --repo SchoolEngine/contracts "$repo_placeholder"
-expect 2 "--repo with a .. segment" - -- --repo "SchoolEngine/.." "$root/rulesets/protect-develop.json"
+  - -- --apply --allow-bypass --repo SoutienScolaireApp/contracts "$repo_placeholder"
+expect 2 "--repo with a .. segment" - -- --repo "SoutienScolaireApp/.." "$root/rulesets/protect-develop.json"
 expect 2 "--repo with a . segment" - -- --repo "./contracts" "$root/rulesets/protect-develop.json"
-expect 2 "malformed --repo" - -- --repo "SchoolEngine" "$root/rulesets/protect-develop.json"
+expect 2 "malformed --repo" - -- --repo "SoutienScolaireApp" "$root/rulesets/protect-develop.json"
 expect 2 "unknown option" - -- --force "$root/rulesets/protect-develop.json"
 
 echo "== Repository rulesets (--repo)"
 same=$(repo_ruleset '.' repo-same.json)
-expect 0 "repository file matches live" - -- --repo SchoolEngine/contracts "$same"
+expect 0 "repository file matches live" - -- --repo SoutienScolaireApp/contracts "$same"
 creation=$(repo_ruleset '.rules += [{"type": "creation"}]' repo-creation.json)
-expect 0 "repository file differs: dry-run" - -- --repo SchoolEngine/contracts "$creation"
+expect 0 "repository file differs: dry-run" - -- --repo SoutienScolaireApp/contracts "$creation"
 expect 0 "repository file differs, --apply: PUT on the repository ruleset" \
-  "PUT repos/SchoolEngine/contracts/rulesets/2" -- --apply --repo SchoolEngine/contracts "$creation"
+  "PUT repos/SoutienScolaireApp/contracts/rulesets/2" -- --apply --repo SoutienScolaireApp/contracts "$creation"
 expect 0 "repository ruleset unknown, --apply: POST on the repository" \
-  "POST repos/SchoolEngine/contracts/rulesets" -- --apply --repo SchoolEngine/contracts "$(repo_ruleset '.name = "other"' repo-new.json)"
+  "POST repos/SoutienScolaireApp/contracts/rulesets" -- --apply --repo SoutienScolaireApp/contracts "$(repo_ruleset '.name = "other"' repo-new.json)"
 
 if [[ "$failures" -gt 0 ]]; then
   echo "$failures case(s) failed."

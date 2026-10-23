@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Apply a SchoolEngine ruleset from its JSON file: an organisation ruleset
+# Apply a SoutienScolaireApp ruleset from its JSON file: an organisation ruleset
 # (rulesets/ of this repository) or, with --repo, a repository ruleset (for
-# example rulesets/ of SchoolEngine/contracts).
+# example rulesets/ of SoutienScolaireApp/contracts).
 #
 # Usage: scripts/apply-ruleset.sh [--apply] [--allow-bypass] [--repo <owner>/<repo>] <NAME.json>
 #
@@ -17,7 +17,7 @@
 # Requires gh (authenticated as an organisation owner or repository admin) and jq.
 set -euo pipefail
 
-ORG="SchoolEngine"
+ORG="SoutienScolaireApp"
 KEYS='{name, target, enforcement, bypass_actors, conditions, rules}'
 USAGE="usage: scripts/apply-ruleset.sh [--apply] [--allow-bypass] [--repo <owner>/<repo>] <NAME.json>"
 

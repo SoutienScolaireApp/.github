@@ -1,7 +1,7 @@
 # Gate integrity of SchoolEngine, from workflow-templates/gate-integrity.yml of
-# SchoolEngine/.github. Copied as is into every repository, next to
+# SoutienScolaireApp/.github. Copied as is into every repository, next to
 # .github/scripts/gate-integrity.sh. Rules and residual risks: CI.md in
-# SchoolEngine/.github, "Gate integrity".
+# SoutienScolaireApp/.github, "Gate integrity".
 #
 # Why pull_request_target: GitHub runs this file and the checker from the
 # default branch (develop), never the PR's copy, so a PR cannot rewrite the
@@ -40,7 +40,7 @@ jobs:
   # checked like any other.
   gate-integrity:
     name: Gate integrity
-    # GitHub-hosted until the self-hosted lanes exist (SchoolEngine/infrastructure#12).
+    # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -111,7 +111,7 @@ jobs:
           set -euo pipefail
           checker=.github/scripts/gate-integrity.sh
           if [[ ! -f "$checker" ]]; then
-            echo "::error::$checker is missing on the default branch: copy it from SchoolEngine/.github."
+            echo "::error::$checker is missing on the default branch: copy it from SoutienScolaireApp/.github."
             exit 1
           fi
           PR_JSON_FILE="$RUNNER_TEMP/pr.json" PR_COMMITS_FILE="$RUNNER_TEMP/commits.json" \

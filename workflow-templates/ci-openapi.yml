@@ -3,7 +3,7 @@
 #
 # Copy this file to .github/workflows/ci.yml and fill the placeholders marked
 # TODO(scaffold). Shape, rules and the Quality Gate contract: CI.md in
-# SchoolEngine/.github. Never rename the `quality-gate` job nor its name
+# SoutienScolaireApp/.github. Never rename the `quality-gate` job nor its name
 # `Quality Gate`: it is the single required check of the protect-develop ruleset.
 # A new job is added to the `needs:` list of `quality-gate`, nothing else.
 
@@ -48,7 +48,7 @@ env:
 jobs:
   pr-conventions:
     name: PR title and linked issue
-    # GitHub-hosted until the self-hosted lanes exist (SchoolEngine/infrastructure#12).
+    # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -97,7 +97,7 @@ jobs:
 
   gitleaks:
     name: Secrets (gitleaks)
-    # GitHub-hosted until the self-hosted lanes exist (SchoolEngine/infrastructure#12).
+    # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -130,7 +130,7 @@ jobs:
 
   actionlint:
     name: Workflows (actionlint)
-    # GitHub-hosted until the self-hosted lanes exist (SchoolEngine/infrastructure#12).
+    # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -159,7 +159,7 @@ jobs:
 
   lint-yaml-markdown:
     name: YAML and Markdown lint
-    # GitHub-hosted until the self-hosted lanes exist (SchoolEngine/infrastructure#12).
+    # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -176,7 +176,7 @@ jobs:
           missing=0
           for f in .yamllint.yml .markdownlint-cli2.yaml; do
             if [[ ! -f "$f" ]]; then
-              echo "::error::$f is missing: copy it from templates/lint/ in SchoolEngine/.github."
+              echo "::error::$f is missing: copy it from templates/lint/ in SoutienScolaireApp/.github."
               missing=1
             fi
           done
@@ -203,7 +203,7 @@ jobs:
 
   osv-scanner:
     name: Vulnerable dependencies (osv-scanner)
-    # GitHub-hosted until the self-hosted lanes exist (SchoolEngine/infrastructure#12).
+    # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -259,7 +259,7 @@ jobs:
 
   openapi-lint:
     name: OpenAPI lint (Spectral)
-    # GitHub-hosted until the self-hosted lanes exist (SchoolEngine/infrastructure#12).
+    # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, node]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -286,7 +286,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ ! -f .spectral.yaml ]]; then
-            echo "::error::.spectral.yaml is missing: copy it from templates/openapi/ in SchoolEngine/.github."
+            echo "::error::.spectral.yaml is missing: copy it from templates/openapi/ in SoutienScolaireApp/.github."
             exit 1
           fi
           spectral --version
@@ -294,7 +294,7 @@ jobs:
 
   oasdiff:
     name: Breaking changes (oasdiff)
-    # GitHub-hosted until the self-hosted lanes exist (SchoolEngine/infrastructure#12).
+    # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, node]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -363,7 +363,7 @@ jobs:
 
   generation-drift:
     name: Generated clients drift
-    # GitHub-hosted until the self-hosted lanes exist (SchoolEngine/infrastructure#12).
+    # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, node]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -408,7 +408,7 @@ jobs:
   # skipped and this gate fails.
   quality-gate:
     name: Quality Gate
-    # GitHub-hosted until the self-hosted lanes exist (SchoolEngine/infrastructure#12).
+    # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5

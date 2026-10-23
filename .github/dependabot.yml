@@ -1,6 +1,6 @@
-# Dependabot configuration of SchoolEngine/.github, copied from the common template of
-# SchoolEngine/.github (templates/dependabot/common.yml).
-# Rules: DEPENDABOT.md in SchoolEngine/.github.
+# Dependabot configuration of SoutienScolaireApp/.github, copied from the common template of
+# SoutienScolaireApp/.github (templates/dependabot/common.yml).
+# Rules: DEPENDABOT.md in SoutienScolaireApp/.github.
 version: 2
 
 updates:

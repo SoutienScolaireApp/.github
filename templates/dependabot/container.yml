@@ -1,7 +1,7 @@
 # SchoolEngine Dependabot template: container
 # Block to append to updates: in any repository that builds an OCI image (backend, infrastructure).
 # Append this entry to the updates: list of .github/dependabot.yml.
-# Rules: DEPENDABOT.md in SchoolEngine/.github.
+# Rules: DEPENDABOT.md in SoutienScolaireApp/.github.
 version: 2
 
 updates:

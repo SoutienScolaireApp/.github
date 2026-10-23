@@ -1,6 +1,6 @@
 # SchoolEngine Dependabot template: node
 # pnpm repositories (contracts, backend, parent-web, admin-web).
-# Copy to .github/dependabot.yml; append container.yml where an image is built. Rules: DEPENDABOT.md in SchoolEngine/.github.
+# Copy to .github/dependabot.yml; append container.yml where an image is built. Rules: DEPENDABOT.md in SoutienScolaireApp/.github.
 version: 2
 
 updates:
@@ -59,7 +59,7 @@ updates:
           - "minor"
           - "patch"
     # Generated API clients are git-tag dependencies on the private contracts
-    # repository (ADR-013, SchoolEngine/architecture#6): bumped by the contract
+    # repository (ADR-013, SoutienScolaireApp/architecture#6): bumped by the contract
     # change procedure, not by Dependabot, until ADR-013 says otherwise.
     ignore:
       - dependency-name: "@usc/api-client"

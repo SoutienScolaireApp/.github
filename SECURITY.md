@@ -1,6 +1,6 @@
 # Security policy
 
-SchoolEngine processes personal data of children and their parents. Vulnerabilities are handled privately until they are fixed.
+This policy covers every repository of the SoutienScolaireApp organization. The SchoolEngine platform processes personal data of children and their parents, and the tracking repositories hold the records of the Parties. Vulnerabilities are handled privately until they are fixed.
 
 ## Reporting a vulnerability
 

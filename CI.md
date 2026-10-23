@@ -1,6 +1,6 @@
 # CI of the SchoolEngine repositories
 
-Every SchoolEngine repository owns one workflow, `.github/workflows/ci.yml`, copied from a template of this repository. There is no reusable workflow: a repository's CI is readable in one file and changes through a pull request of that repository. Security tool choices: ADR-014 (`SchoolEngine/architecture`).
+Every SchoolEngine repository owns one workflow, `.github/workflows/ci.yml`, copied from a template of this repository. There is no reusable workflow: a repository's CI is readable in one file and changes through a pull request of that repository. Security tool choices: ADR-014 (`SoutienScolaireApp/architecture`).
 
 ## Templates
 
@@ -29,7 +29,7 @@ Placeholders that a scaffold ticket must fill are marked `TODO(scaffold)` in the
 
 ## Using a template
 
-1. In the repository, open **Actions > New workflow**: the templates are listed in the section of workflows created by SchoolEngine. If they are not shown, copy the file by hand: `workflow-templates/ci-<variant>.yml` to `.github/workflows/ci.yml`.
+1. In the repository, open **Actions > New workflow**: the templates are listed in the section of workflows created by SoutienScolaireApp. If they are not shown, copy the file by hand: `workflow-templates/ci-<variant>.yml` to `.github/workflows/ci.yml`.
 2. Copy `templates/lint/.yamllint.yml` and `templates/lint/.markdownlint-cli2.yaml` to the repository root (and, for `contracts`, `templates/openapi/.spectral.yaml`). The lint jobs refuse to run without them.
    For a pnpm repository, pin pnpm in the `packageManager` field of `package.json` to a major that Dependabot supports (GitHub documents pnpm v7 to v10; `pnpm@10.34.6` on 2026-10-15).
    For a pnpm repository, also define the scripts the `node` job calls (`format:check` = `prettier --check .`, `lint`, `typecheck`, `test:coverage`, `build`) and keep YAML and Markdown out of Prettier (see [Formatting](#formatting)).
@@ -52,7 +52,7 @@ The templates are only offered from the default branch (`develop`) of this repos
 
 ## The Quality Gate
 
-`Quality Gate` is the **single required check** of `develop`. It is required by the organisation ruleset `protect-develop` (kept as code in [`rulesets/protect-develop.json`](rulesets/protect-develop.json), see [`rulesets/README.md`](rulesets/README.md)), which names the check and its source (GitHub Actions, integration id 15368), not the workflow: every repository must produce a check called exactly `Quality Gate`, or none of its PRs can be merged. The policy is **strict**: a PR merges only when its branch is up to date with `develop` and `Quality Gate` passed on that state, so a PR older than a new CI rule cannot skip it (SchoolEngine/parent-web#12). After each merge, update the other open PRs before merging them: the **Update branch** button or `gh pr update-branch <n>`. Dependabot PRs are rebased by Dependabot itself (`@dependabot rebase`); never push to them. Details in [`rulesets/README.md`](rulesets/README.md#why-strict_required_status_checks_policy-is-true).
+`Quality Gate` is the **single required check** of `develop`. It is required by the organisation ruleset `protect-develop` (kept as code in [`rulesets/protect-develop.json`](rulesets/protect-develop.json), see [`rulesets/README.md`](rulesets/README.md)), which names the check and its source (GitHub Actions, integration id 15368), not the workflow: every repository must produce a check called exactly `Quality Gate`, or none of its PRs can be merged. The policy is **strict**: a PR merges only when its branch is up to date with `develop` and `Quality Gate` passed on that state, so a PR older than a new CI rule cannot skip it (SoutienScolaireApp/parent-web#12). After each merge, update the other open PRs before merging them: the **Update branch** button or `gh pr update-branch <n>`. Dependabot PRs are rebased by Dependabot itself (`@dependabot rebase`); never push to them. Details in [`rulesets/README.md`](rulesets/README.md#why-strict_required_status_checks_policy-is-true).
 
 Rules, all learned on TheOpenMusicBox:
 
@@ -147,7 +147,7 @@ One formatter of record per file type, all blocking:
 | TypeScript, JavaScript, JSON, CSS, HTML (pnpm repositories) | Prettier, `pnpm run format:check` | `node` (`Format check`) |
 | Dart | `dart format --set-exit-if-changed` | `flutter` (`Format`) |
 
-In a pnpm repository, `.prettierignore` lists `*.md`, `*.yml` and `*.yaml` (plus the lockfile and build outputs). Prettier would otherwise judge them a second time with a different rule set: a Markdown file that markdownlint accepts can fail `Format check`, and Dependabot PRs, which rewrite `.github/` YAML, would fail on a rule nobody chose. In `parent-web` an unformatted `CLAUDE.md` merged from a branch older than the `node` job turned `develop` red for every PR (SchoolEngine/parent-web#12).
+In a pnpm repository, `.prettierignore` lists `*.md`, `*.yml` and `*.yaml` (plus the lockfile and build outputs). Prettier would otherwise judge them a second time with a different rule set: a Markdown file that markdownlint accepts can fail `Format check`, and Dependabot PRs, which rewrite `.github/` YAML, would fail on a rule nobody chose. In `parent-web` an unformatted `CLAUDE.md` merged from a branch older than the `node` job turned `develop` red for every PR (SoutienScolaireApp/parent-web#12).
 
 ## Security rules (ADR-014)
 
@@ -162,4 +162,4 @@ Versions downloaded in `run:` steps are not seen by Dependabot. To bump one: cha
 
 ## Runners: GitHub-hosted now, self-hosted later
 
-Jobs run on `ubuntu-latest` until the self-hosted lanes exist (SchoolEngine/infrastructure#12, ADR-011). Each `runs-on:` carries a comment with its future value, `[self-hosted, Linux, X64, <lane>]`. The switch is a one-line change per job and does not touch the gate. Tools are installed by the jobs themselves (no reliance on the preinstalled software of the GitHub image, except `jq`, `curl`, `git`, `gh`, `shellcheck` and, for `Gate integrity`, `python3`), so the same file runs on a self-hosted lane, and later on Forgejo Actions.
+Jobs run on `ubuntu-latest` until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12, ADR-011). Each `runs-on:` carries a comment with its future value, `[self-hosted, Linux, X64, <lane>]`. The switch is a one-line change per job and does not touch the gate. Tools are installed by the jobs themselves (no reliance on the preinstalled software of the GitHub image, except `jq`, `curl`, `git`, `gh`, `shellcheck` and, for `Gate integrity`, `python3`), so the same file runs on a self-hosted lane, and later on Forgejo Actions.

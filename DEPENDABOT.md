@@ -1,6 +1,6 @@
 # Dependency updates with Dependabot
 
-SchoolEngine repositories keep their dependencies up to date with Dependabot version updates and Dependabot security updates (ADR-014 in `SchoolEngine/architecture`; Dependabot replaces the Renovate of the founding specification). Dependabot alerts are enabled on the organisation.
+SchoolEngine repositories keep their dependencies up to date with Dependabot version updates and Dependabot security updates (ADR-014 in `SoutienScolaireApp/architecture`; Dependabot replaces the Renovate of the founding specification). Dependabot alerts are enabled on the organisation.
 
 ## Templates
 
@@ -45,7 +45,7 @@ The `node.yml` template ignores two semver-major updates in every `npm` ecosyste
 
 ## Generated API clients
 
-`@usc/api-client` and `usc_api_client` are git-tag dependencies on the private `contracts` repository (ADR-013, SchoolEngine/architecture#6). The templates **ignore** them: they are bumped by the contract change procedure (a PR per consumer after a new contracts tag), not by Dependabot. If ADR-013 shows that Dependabot can propose those tag bumps, remove the `ignore` entry; Dependabot then also needs read access to `contracts` (organisation setting "Grant Dependabot access to private repositories").
+`@usc/api-client` and `usc_api_client` are git-tag dependencies on the private `contracts` repository (ADR-013, SoutienScolaireApp/architecture#6). The templates **ignore** them: they are bumped by the contract change procedure (a PR per consumer after a new contracts tag), not by Dependabot. If ADR-013 shows that Dependabot can propose those tag bumps, remove the `ignore` entry; Dependabot then also needs read access to `contracts` (organisation setting "Grant Dependabot access to private repositories").
 
 ## pnpm version
 
