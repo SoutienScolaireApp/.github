@@ -7,7 +7,7 @@ GitHub shows this file in every repository that has no `CONTRIBUTING.md` of its 
 ## Branches
 
 - `develop` is the default branch, the only long-lived branch and the starting point of every branch. There is no `main`.
-- In the code repositories, `develop` is protected by the organization ruleset `protect-develop`: pull request required, squash only, linear history, no force-push, no deletion, review threads resolved, no bypass (owners included).
+- In the code repositories, `develop` is protected by the organization ruleset `protect-develop`: pull request required, squash only, linear history, no force-push, no deletion, review threads resolved; the only bypass is a break-glass for organization owners, through a pull request (logged), see [rulesets/README.md](https://github.com/SoutienScolaireApp/.github/blob/develop/rulesets/README.md#break-glass).
 - Never commit directly to `develop`, not even a typo.
 
 ## Workflow

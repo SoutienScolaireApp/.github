@@ -2,11 +2,11 @@
 
 Organisation rulesets of SoutienScolaireApp, kept as code. The JSON file is the source of truth: the live ruleset must always match it.
 
-**Before the first `--apply` in SoutienScolaireApp** (the file comes from the SchoolEngine organisation, SoutienScolaireApp/architecture#25): `protect-develop.json` targets `~ALL` repositories and requires `Quality Gate`. Applied as is, it would block every merge in a repository that does not report that check (`docs`, `journal`, `legal` today). Narrow `conditions.repository_name` to the code repositories, or give the other repositories a `Quality Gate`, in a PR approved by Céline, before applying it.
+**Scope.** `protect-develop.json` lists its repositories by name: `contracts`, `backend`, `mobile-app`, `parent-web`, `admin-web`, `infrastructure`, `architecture` and `.github`, the repositories that report `Quality Gate`. History: in the SchoolEngine organisation it targeted `~ALL`; applied as is in SoutienScolaireApp (SoutienScolaireApp/architecture#25), it would have blocked every merge in `docs`, `journal` and `legal`, which do not report that check. A new code repository is added to the list in a PR, once it reports `Quality Gate`.
 
 | File | Ruleset | What it enforces |
 |---|---|---|
-| `protect-develop.json` | `protect-develop` (id 25146431 in the former SchoolEngine organisation; new id once created in SoutienScolaireApp) | Default branch of every repository: no deletion, no force-push, linear history, PR required (squash only, review threads resolved, stale approvals dismissed), required check `Quality Gate` (GitHub Actions, integration id 15368, branch required to be up to date with `develop`). No bypass actor. |
+| `protect-develop.json` | `protect-develop` (id 25146431 in the former SchoolEngine organisation; new id once created in SoutienScolaireApp) | Default branch of the listed repositories: no deletion, no force-push, linear history, PR required (squash only, review threads resolved, stale approvals dismissed), required check `Quality Gate` (GitHub Actions, integration id 15368, branch required to be up to date with `develop`). One bypass actor, the break-glass: organisation owners, through a pull request only (see [Break-glass](#break-glass)). |
 
 The file holds only the fields accepted by the API (`name`, `target`, `enforcement`, `bypass_actors`, `conditions`, `rules`): no `id`, timestamps, `_links`, `node_id` or `source`. It can be re-imported as is, with `PUT` on the existing ruleset or `POST` on a new organisation.
 
@@ -16,20 +16,24 @@ The file holds only the fields accepted by the API (`name`, `target`, `enforceme
 2. After the merge, compare the file with the live ruleset (dry-run, changes nothing):
 
    ```bash
-   scripts/apply-ruleset.sh rulesets/protect-develop.json
+   scripts/apply-ruleset.sh --allow-bypass rulesets/protect-develop.json
    ```
 
 3. Apply it (organisation owner only):
 
    ```bash
-   scripts/apply-ruleset.sh --apply rulesets/protect-develop.json
+   scripts/apply-ruleset.sh --apply --allow-bypass rulesets/protect-develop.json
    ```
 
-   The script is idempotent (a second run reports nothing to do). It refuses a file without a `bypass_actors` array of objects (`[]` for none: without the key, a `PUT` keeps the live bypass list and the file stops describing the ruleset), and a file that declares bypass actors unless `--allow-bypass` is given (`protect-develop` has none by design). Each bypass actor needs a valid `actor_id` for its type, as the REST API defines it, or the file is refused even with `--allow-bypass`: `Integration`, `RepositoryRole`, `Team` and `User` take a positive integer (a placeholder such as `0`, `"0"` or a negative value is refused); `OrganizationAdmin` ignores it (GitHub returns `1`); `DeployKey` takes `null`; any other type is refused. The `--repo` value refuses `.` and `..` segments. The equivalent raw call is `gh api -X PUT orgs/SoutienScolaireApp/rulesets/<id> --input rulesets/protect-develop.json`.
+   The script is idempotent (a second run reports nothing to do). It refuses a file without a `bypass_actors` array of objects (`[]` for none: without the key, a `PUT` keeps the live bypass list and the file stops describing the ruleset), and a file that declares bypass actors unless `--allow-bypass` is given (`protect-develop` declares only the break-glass, so its commands below pass `--allow-bypass`). Each bypass actor needs a valid `actor_id` for its type, as the REST API defines it, or the file is refused even with `--allow-bypass`: `Integration`, `RepositoryRole`, `Team` and `User` take a positive integer (a placeholder such as `0`, `"0"` or a negative value is refused); `OrganizationAdmin` ignores it (GitHub returns `1`); `DeployKey` takes `null`; any other type is refused. The `--repo` value refuses `.` and `..` segments. The equivalent raw call is `gh api -X PUT orgs/SoutienScolaireApp/rulesets/<id> --input rulesets/protect-develop.json`.
 
 4. Check the result on one repository: `gh api repos/SoutienScolaireApp/backend/rules/branches/develop`.
 
 If the live ruleset was changed outside this process, export it back (`gh api orgs/SoutienScolaireApp/rulesets/<id> | jq '{name, target, enforcement, bypass_actors, conditions, rules}'`) and open a PR so the file matches again.
+
+## Break-glass
+
+`protect-develop` has one bypass actor: `OrganizationAdmin` (the organisation owners; the API ignores its `actor_id` and returns `1`) with `bypass_mode` `pull_request`. An owner can merge a pull request that does not meet the rules (for example a red `Quality Gate` caused by a broken GitHub-side dependency), but never push to `develop` directly: the bypass goes through a pull request, so it is visible on the PR and logged in the organisation audit log. Use it only when the normal path is blocked, say why in the PR, and open an issue for the cause. Before the break-glass existed, the ruleset had no bypass actor at all (owners included).
 
 ## Repository rulesets
 
@@ -72,8 +76,8 @@ The cost: after every merge, the other open PRs of the repository are out of dat
 3. **Activation PR** in this repository: adds `{"context": "Gate integrity", "integration_id": 15368}` to the required checks of `protect-develop.json`. After its merge, an organisation owner applies it; the dry-run must show only the added check:
 
    ```bash
-   scripts/apply-ruleset.sh rulesets/protect-develop.json
-   scripts/apply-ruleset.sh --apply rulesets/protect-develop.json
+   scripts/apply-ruleset.sh --allow-bypass rulesets/protect-develop.json
+   scripts/apply-ruleset.sh --apply --allow-bypass rulesets/protect-develop.json
    ```
 
 4. **Check** on one repository: `gh api repos/SoutienScolaireApp/backend/rules/branches/develop --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks'` lists both checks.
@@ -86,7 +90,7 @@ The cost: after every merge, the other open PRs of the repository are out of dat
 ```bash
 jq '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks)
     |= map(select(.context != "Gate integrity"))' rulesets/protect-develop.json > /tmp/protect-develop.json
-scripts/apply-ruleset.sh --apply /tmp/protect-develop.json
+scripts/apply-ruleset.sh --apply --allow-bypass /tmp/protect-develop.json
 ```
 
 The PR that fixes the check then restores the entry, and it is applied again after its merge.

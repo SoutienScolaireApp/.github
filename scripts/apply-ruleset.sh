@@ -89,7 +89,7 @@ if [[ "$bypass_count" != "0" ]]; then
   echo "$file declares $bypass_count bypass actor(s):"
   jq -r '.bypass_actors[] | "  \(.actor_type) \(.actor_id // "-") (\(.bypass_mode))"' "$file"
   if ! $allow_bypass; then
-    echo "Refused: bypass actors need --allow-bypass (protect-develop has none by design)." >&2
+    echo "Refused: bypass actors need --allow-bypass (protect-develop declares only the OrganizationAdmin break-glass)." >&2
     exit 1
   fi
 fi

@@ -58,20 +58,29 @@ expect() {
   fi
 }
 
-ruleset() { jq "$1" "$root/rulesets/protect-develop.json" >"$work/$2"; echo "$work/$2"; }
+# Derived rulesets start without bypass actor, so each case tests one thing.
+ruleset() { jq ".bypass_actors = [] | $1" "$root/rulesets/protect-develop.json" >"$work/$2"; echo "$work/$2"; }
 repo_ruleset() { jq "$1" "$work/live-repo.json" | jq 'del(.id, .source_type)' >"$work/$2"; echo "$work/$2"; }
 
 echo "== The committed rulesets"
-if [[ "$(jq -c '.bypass_actors' "$root/rulesets/protect-develop.json")" == "[]" ]]; then
-  echo "ok   protect-develop.json has no bypass actor"
+break_glass='[{"actor_id":1,"actor_type":"OrganizationAdmin","bypass_mode":"pull_request"}]'
+if [[ "$(jq -c '.bypass_actors' "$root/rulesets/protect-develop.json")" == "$break_glass" ]]; then
+  echo "ok   protect-develop.json has only the break-glass bypass (organisation owners, through a PR)"
 else
-  echo "FAIL protect-develop.json declares bypass actors"
+  echo "FAIL protect-develop.json bypass actors are not exactly the break-glass one"
+  failures=$((failures + 1))
+fi
+if jq -e '.conditions.repository_name.include | index("~ALL") | not' "$root/rulesets/protect-develop.json" >/dev/null; then
+  echo "ok   protect-develop.json lists its repositories (no ~ALL)"
+else
+  echo "FAIL protect-develop.json targets ~ALL"
   failures=$((failures + 1))
 fi
 
 echo "== Organisation rulesets"
-expect 0 "file matches live: nothing to do" - -- "$root/rulesets/protect-develop.json"
-expect 0 "file matches live, --apply: no write" - -- --apply "$root/rulesets/protect-develop.json"
+expect 1 "committed file without --allow-bypass refused" - -- --apply "$root/rulesets/protect-develop.json"
+expect 0 "file matches live: nothing to do" - -- --allow-bypass "$root/rulesets/protect-develop.json"
+expect 0 "file matches live, --apply: no write" - -- --apply --allow-bypass "$root/rulesets/protect-develop.json"
 changed=$(ruleset '.enforcement = "evaluate"' changed.json)
 expect 0 "file differs: dry-run writes nothing" - -- "$changed"
 expect 0 "file differs, --apply: PUT on the organisation ruleset" "PUT orgs/SoutienScolaireApp/rulesets/1" -- --apply "$changed"

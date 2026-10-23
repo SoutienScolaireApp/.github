@@ -47,6 +47,7 @@ jobs:
     name: PR title and linked issue
     # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
+    # This repository is public: its jobs must stay on GitHub-hosted runners.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -96,6 +97,7 @@ jobs:
     name: Secrets (gitleaks)
     # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
+    # This repository is public: its jobs must stay on GitHub-hosted runners.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -129,6 +131,7 @@ jobs:
     name: Workflows (actionlint)
     # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
+    # This repository is public: its jobs must stay on GitHub-hosted runners.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -158,6 +161,7 @@ jobs:
     name: YAML and Markdown lint
     # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
+    # This repository is public: its jobs must stay on GitHub-hosted runners.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -202,6 +206,7 @@ jobs:
     name: Vulnerable dependencies (osv-scanner)
     # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
+    # This repository is public: its jobs must stay on GitHub-hosted runners.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -260,6 +265,7 @@ jobs:
     name: Scripts (shellcheck, tests)
     # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
+    # This repository is public: its jobs must stay on GitHub-hosted runners.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -305,6 +311,7 @@ jobs:
     name: Quality Gate
     # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
+    # This repository is public: its jobs must stay on GitHub-hosted runners.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [pr-conventions, gitleaks, actionlint, lint-yaml-markdown, osv-scanner, scripts]

@@ -42,6 +42,7 @@ jobs:
     name: Gate integrity
     # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
+    # A public repository (SoutienScolaireApp/.github is one) keeps this job on GitHub-hosted runners.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
