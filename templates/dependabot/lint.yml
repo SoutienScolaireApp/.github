@@ -1,0 +1,47 @@
+# SchoolEngine Dependabot template: lint
+# Entries to append to the updates: list of .github/dependabot.yml in every
+# repository: the lint tools of the `YAML and Markdown lint` job, pinned with
+# their hashes in .github/lint/ (copied from templates/lint/).
+# Rules: DEPENDABOT.md in SoutienScolaireApp/.github.
+version: 2
+
+updates:
+  - package-ecosystem: "pip"
+    directory: "/.github/lint"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Brussels"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "tech-debt"
+    groups:
+      lint-tools-pip:
+        applies-to: version-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/.github/lint"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Brussels"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "tech-debt"
+    groups:
+      lint-tools-npm:
+        applies-to: version-updates
+        patterns:
+          - "*"

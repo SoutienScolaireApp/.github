@@ -171,7 +171,7 @@ expect 0 "a matrix job name built from a matrix value" feat_pr check \
   "$(head_of '.jobs.node.name = "Test (${{ matrix.os }})" | .jobs.node.strategy.matrix.os = ["ubuntu", "macos"]')"
 expect 0 "a local action under .github/actions/" feat_pr check \
   "$(head_of '.jobs.node.steps += [{"uses": "./.github/actions/setup"}]')"
-expect 0 "a version without sha256 bumped" feat_pr check "$(head_of '.env.YAMLLINT_VERSION = "1.39.0"')"
+expect 0 "a version without sha256 bumped" feat_pr check "$(head_of '.env.NODE_VERSION = "24.22.0"')"
 expect 0 "Dependabot: an action SHA bumped in ci.yml" dependabot_pr check \
   "$(head_of "(.jobs.gitleaks.steps[0].uses) = \"actions/checkout@$sha_a\"")"
 tree "$work/t-base" ""
@@ -234,8 +234,8 @@ head=$(head_of '.')
 sed -i.bak 's/^permissions:/permissions: {}\npermissions:/' "$head/.github/workflows/ci.yml"
 expect 1 "duplicate keys in ci.yml" justified_pr check "$head"
 expect 1 "a second YAML document in ci.yml" justified_pr check "$(head_append $'---\non: push')"
-expect 1 "a tool version that is not a version" justified_pr check "$(head_of '.env.YAMLLINT_VERSION = "latest"')"
-expect 1 "a tool version downgraded" justified_pr check "$(head_of '.env.YAMLLINT_VERSION = "1.9.0"')"
+expect 1 "a tool version that is not a version" justified_pr check "$(head_of '.env.NODE_VERSION = "latest"')"
+expect 1 "a tool version downgraded" justified_pr check "$(head_of '.env.NODE_VERSION = "1.9.0"')"
 expect 1 "a version bumped without its sha256" justified_pr check "$(head_of '.env.GITLEAKS_VERSION = "8.31.0"')"
 expect 1 "a sha256 changed without its version" justified_pr check "$(head_of ".env.GITLEAKS_SHA256 = \"$sha64\"")"
 expect 1 "a sha256 that is not one" justified_pr check \

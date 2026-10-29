@@ -1,0 +1,8 @@
+{
+  "name": "lint-tools",
+  "private": true,
+  "description": "markdownlint-cli2 for the YAML and Markdown lint job, installed with npm ci from package-lock.json (CI.md).",
+  "devDependencies": {
+    "markdownlint-cli2": "0.23.3"
+  }
+}

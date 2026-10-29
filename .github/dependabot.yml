@@ -4,10 +4,15 @@
 version: 2
 
 updates:
-  # Actions pinned by SHA in .github/workflows (every repository).
-  # Dependabot updates the SHA and its version comment together.
+  # Actions pinned by SHA in .github/workflows (every repository) and, in
+  # this repository only, in the workflow templates. Dependabot updates the
+  # SHA and its version comment together. A non-root directory is scanned for
+  # its own *.yml files. tests/ci-templates/run.sh requires one SHA per action
+  # across both directories, so each update covers both in one PR.
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/workflow-templates"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -23,11 +28,67 @@ updates:
       include: "scope"
     labels:
       - "tech-debt"
-    # Minor and patch version updates in one weekly PR; majors stay separate.
-    # Security updates are never grouped, so they are never held back.
+    # Minor and patch version updates in one weekly PR; a major gets its own
+    # PR, still across both directories. Security updates are never grouped,
+    # so they are never held back.
     groups:
       actions-minor-and-patch:
         applies-to: version-updates
         update-types:
           - "minor"
           - "patch"
+      actions-major:
+        applies-to: version-updates
+        group-by: dependency-name
+        update-types:
+          - "major"
+
+  # Lint tools of the `YAML and Markdown lint` job (hashed requirements.txt,
+  # package-lock.json): the template and this repository's copy, which
+  # tests/ci-templates/run.sh requires to be identical, in one PR.
+  - package-ecosystem: "pip"
+    directories:
+      - "/templates/lint"
+      - "/.github/lint"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Brussels"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "tech-debt"
+    groups:
+      lint-tools-pip:
+        applies-to: version-updates
+        patterns:
+          - "*"
+
+  # Lint tools of the `YAML and Markdown lint` job (hashed requirements.txt,
+  # package-lock.json): the template and this repository's copy, which
+  # tests/ci-templates/run.sh requires to be identical, in one PR.
+  - package-ecosystem: "npm"
+    directories:
+      - "/templates/lint"
+      - "/.github/lint"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Brussels"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "tech-debt"
+    groups:
+      lint-tools-npm:
+        applies-to: version-updates
+        patterns:
+          - "*"

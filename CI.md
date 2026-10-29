@@ -9,28 +9,30 @@ Every SchoolEngine repository owns one workflow, `.github/workflows/ci.yml`, cop
 | [`ci-common`](workflow-templates/ci-common.yml) | Docs and configuration repositories (`architecture`, `.github`) | none |
 | [`ci-node`](workflow-templates/ci-node.yml) | pnpm repositories (`backend`, `parent-web`, `admin-web`) | `node`: frozen install, format check (Prettier), lint, typecheck, tests with a coverage floor (`COVERAGE_MIN`: 80 % for `backend`, 70 % for `parent-web` and `admin-web`), build |
 | [`ci-flutter`](workflow-templates/ci-flutter.yml) | `mobile-app` | `flutter`: pinned SDK (sha256 verified), enforced lockfile, `dart format --set-exit-if-changed`, `flutter analyze`, `flutter test --coverage`, coverage floor 70 % |
-| [`ci-openapi`](workflow-templates/ci-openapi.yml) | `contracts` | `openapi-lint` (Spectral 6.16.3 standalone binary, sha256 verified, rule set `.spectral.yaml` from `templates/openapi/`, warnings block), `oasdiff` (breaking changes against the base branch), `generation-drift` (`git status` must stay clean after regeneration) |
-| [`ci-ansible`](workflow-templates/ci-ansible.yml) | `infrastructure` | `ansible`: pinned ansible-core and ansible-lint, `--syntax-check` of every playbook; `sops`: every `*.sops.*` file is encrypted |
+| [`ci-openapi`](workflow-templates/ci-openapi.yml) | `contracts` | `openapi-lint` (Spectral 6.16.3 standalone binary, sha256 verified, rule set `.spectral.yaml` from `templates/openapi/`, warnings block), `oasdiff` (breaking changes against the latest `v*` release tag, or the base branch while no release exists; the whole top-level directory of `OPENAPI_SPEC`, `openapi/v1/openapi.yaml` in `contracts`, is the baseline, so a split document compares correctly), `generation-drift` (`git status` must stay clean after regeneration) |
+| [`ci-ansible`](workflow-templates/ci-ansible.yml) | `infrastructure` | `ansible`: pinned ansible-core and ansible-lint, `--syntax-check` of every playbook; `sops`: every tracked `<name>.sops.yml`, `.yaml` or `.json` is encrypted (the sops configuration `.sops.yaml` has no prefix and is not matched; `tests/sops-regex/run.sh`) |
 
 Common jobs, in every template:
 
 | Job | Display name | Blocks on |
 |---|---|---|
-| `pr-conventions` | PR title and linked issue | title not in Conventional Commits; no `Closes #n` (or Fixes/Resolves, or `owner/repo#n`) in the body |
+| `pr-conventions` | PR title and linked issue | title not in Conventional Commits or not ending with the issue number `(#<issue>)`; no `Closes #n` (or Fixes/Resolves, `<this repo>#n` or its issue URL) on an issue of the same repository in the body. Dependabot PRs are exempt from the suffix and the closing keyword |
 | `gitleaks` | Secrets (gitleaks) | any secret in the commits of the PR (`gitleaks git --redact` on `base..head`) |
 | `actionlint` | Workflows (actionlint) | any actionlint or shellcheck finding in the workflows |
 | `lint-yaml-markdown` | YAML and Markdown lint | yamllint (`--strict`) or markdownlint finding |
 | `osv-scanner` | Vulnerable dependencies (osv-scanner) | a high or critical vulnerability (CVSS 7.0 or more), or one without a score, in a committed lockfile |
 | `quality-gate` | **Quality Gate** | any job above that did not succeed |
 
-Next to `ci.yml`, every repository has `.github/workflows/gate-integrity.yml` ([template](workflow-templates/gate-integrity.yml)), the `Gate integrity` check: see [Gate integrity](#gate-integrity).
+Next to `ci.yml`, every repository has `.github/workflows/gate-integrity.yml` ([template](workflow-templates/gate-integrity.yml)), the `Gate integrity` check: see [Gate integrity](#gate-integrity), and `.github/workflows/gitleaks-history.yml` ([template](workflow-templates/gitleaks-history.yml)), the weekly scan of the whole history: see [Security rules](#security-rules-adr-014).
+
+**Drift.** The common jobs, the gate (its `needs:` aside), the shared `env:` pins and every action SHA are identical in all the templates and in this repository's own workflows; `templates/lint/` and `.github/lint/` are identical too. `tests/ci-templates/run.sh` (run by the `scripts` job) fails otherwise, and the same job runs actionlint on `workflow-templates/*.yml`. Dependabot scans `workflow-templates/` with `.github/workflows/`, so an action update reaches both in one PR. Each repository's `ci.yml` follows the template through its own PR (listed in the issue that changed the template).
 
 Placeholders that a scaffold ticket must fill are marked `TODO(scaffold)` in the templates. They fail closed: an unfilled template is red, never green on nothing.
 
 ## Using a template
 
 1. In the repository, open **Actions > New workflow**: the templates are listed in the section of workflows created by SoutienScolaireApp. If they are not shown, copy the file by hand: `workflow-templates/ci-<variant>.yml` to `.github/workflows/ci.yml`.
-2. Copy `templates/lint/.yamllint.yml` and `templates/lint/.markdownlint-cli2.yaml` to the repository root (and, for `contracts`, `templates/openapi/.spectral.yaml`). The lint jobs refuse to run without them.
+2. Copy `templates/lint/.yamllint.yml` and `templates/lint/.markdownlint-cli2.yaml` to the repository root (and, for `contracts`, `templates/openapi/.spectral.yaml`), and `templates/lint/requirements.txt`, `package.json` and `package-lock.json` to `.github/lint/`. Append `templates/dependabot/lint.yml` to `.github/dependabot.yml`, and copy `workflow-templates/gitleaks-history.yml` to `.github/workflows/`. The lint jobs refuse to run without these files.
    For a pnpm repository, pin pnpm in the `packageManager` field of `package.json` to a major that Dependabot supports (GitHub documents pnpm v7 to v10; `pnpm@10.34.6` on 2026-10-15).
    For a pnpm repository, also define the scripts the `node` job calls (`format:check` = `prettier --check .`, `lint`, `typecheck`, `test:coverage`, `build`) and keep YAML and Markdown out of Prettier (see [Formatting](#formatting)).
 3. Fill the `TODO(scaffold)` placeholders, open the pull request, and check that every job, then `Quality Gate`, is green.
@@ -46,7 +48,8 @@ The templates are only offered from the default branch (`develop`) of this repos
 - Fork guard on every job except the gate: `if: github.event.pull_request.head.repo.full_name == github.repository`. A fork PR skips every job and fails the gate: it never runs code with the repository's token.
 - `timeout-minutes` on every job.
 - `actions/checkout` always with `persist-credentials: false`.
-- Third-party actions pinned by full commit SHA with a `# owner/action@vX.Y.Z` comment (enforced by the organisation). No wrapper action for the security tools.
+- Third-party actions pinned by full commit SHA with a `# owner/action@vX.Y.Z` comment (checked in review and by `tests/ci-templates/run.sh` for the templates; the organisation setting is not enforced yet, see [Allowed actions](#allowed-actions)). No wrapper action for the security tools.
+- Lint tools (yamllint, markdownlint-cli2) installed from `.github/lint/`, every package including transitive ones pinned with its hash: `pip install --require-hashes --only-binary :all: --no-deps -r .github/lint/requirements.txt`, and `npm ci --ignore-scripts` of `package.json` and `package-lock.json` in `$RUNNER_TEMP` (no `node_modules` in the checkout). Dependabot bumps them (`pip`, `npm`).
 - Tool versions pinned in the workflow `env:` block, one place per template, each with the sha256 of its linux amd64 release asset (`GITLEAKS_SHA256`, `ACTIONLINT_SHA256`, `OSV_SCANNER_SHA256`, `OASDIFF_SHA256`, `YQ_SHA256`, `SPECTRAL_SHA256`, `FLUTTER_SHA256`). The download is checked against that pinned value, never against a checksum file of the same release (an attacker who can replace an asset can replace the checksum file next to it).
 - PR title, body and labels never appear in a `${{ }}` expression inside `run:` (script injection): they are fetched by the script and kept in shell variables.
 
@@ -142,8 +145,8 @@ One formatter of record per file type, all blocking:
 
 | Files | Tool | Job |
 | --- | --- | --- |
-| YAML | yamllint `--strict` (`.yamllint.yml`) | `lint-yaml-markdown` |
-| Markdown | markdownlint-cli2 (`.markdownlint-cli2.yaml`) | `lint-yaml-markdown` |
+| YAML | yamllint `--strict` (`.yamllint.yml`, version in `.github/lint/requirements.txt`) | `lint-yaml-markdown` |
+| Markdown | markdownlint-cli2 (`.markdownlint-cli2.yaml`, version in `.github/lint/package-lock.json`) | `lint-yaml-markdown` |
 | TypeScript, JavaScript, JSON, CSS, HTML (pnpm repositories) | Prettier, `pnpm run format:check` | `node` (`Format check`) |
 | Dart | `dart format --set-exit-if-changed` | `flutter` (`Format`) |
 
@@ -154,11 +157,22 @@ In a pnpm repository, `.prettierignore` lists `*.md`, `*.yml` and `*.yaml` (plus
 - **A gitleaks finding means the secret is compromised**: it has already been pushed. Rotate it first, then remove it from the branch. `.gitleaksignore` and inline `gitleaks:allow` are used only for proven false positives, justified in the PR; `.gitleaksignore` entries and allowlists also carry an expiry date ([Ignore files](#ignore-files)).
 - **osv-scanner** blocks on high and critical findings, and on findings without a severity score. Moderate and low findings are left to Dependabot alerts. A finding with no available fix may be ignored only in `osv-scanner.toml` (`[[IgnoredVulns]]` with `reason` and `ignoreUntil`), reviewed in the PR. `pnpm audit` is a local command, never a CI check.
 - **Dependabot PRs** are exempt from the `Closes #n` check only (author `dependabot[bot]`); their `chore(deps): ...` titles pass the title check like any other.
-- Before any mirror or migration of a repository, run `gitleaks git` on the whole history.
+- **Whole history, weekly**: `gitleaks-history.yml` scans every commit reachable from any branch or tag every Monday, and is run by hand (**Actions > Secrets history scan > Run workflow**) before any mirror or migration of a repository (the Forgejo mirror included). The `gitleaks` job of `ci.yml` only scans the commits of the PR.
+- **Checksum provenance**: every tool downloaded in a `run:` step is checked against a sha256 pinned in `env:`, never against a checksum file of the same release. The accepted risk is the first pin: the sha256 is taken once from the release (asset digest, cross-checked locally); a release replaced before that moment would be pinned as is.
 
 ## Bumping a tool version
 
-Versions downloaded in `run:` steps are not seen by Dependabot. To bump one: change the version **and its `*_SHA256`** in the `env:` block of the template here, then in each repository's `ci.yml`. Take the sha256 from the asset digest GitHub shows on the release page (or `gh release view`), cross-checked with a local `sha256sum` of the downloaded asset and, when the project publishes one, its checksum file (the Flutter value comes from the Flutter release index). A version bump with its sha256 is a gate change (a different binary): the PR body gets a `## Gate change` section naming the release and where the sha256 was taken from. `Gate integrity` refuses a malformed version, a downgrade, a version or sha256 changed alone, and a sha256 removed while its version stays. Actions in `uses:` are bumped by Dependabot (`github-actions` ecosystem), keeping the SHA and the version comment in sync.
+Versions downloaded in `run:` steps are not seen by Dependabot. To bump one: change the version **and its `*_SHA256`** in the `env:` block of the template here, then in each repository's `ci.yml`. Take the sha256 from the asset digest GitHub shows on the release page (or `gh release view`), cross-checked with a local `sha256sum` of the downloaded asset and, when the project publishes one, its checksum file (the Flutter value comes from the Flutter release index). A version bump with its sha256 is a gate change (a different binary): the PR body gets a `## Gate change` section naming the release and where the sha256 was taken from. `Gate integrity` refuses a malformed version, a downgrade, a version or sha256 changed alone, and a sha256 removed while its version stays. Actions in `uses:` are bumped by Dependabot (`github-actions` ecosystem), keeping the SHA and the version comment in sync: in this repository it scans both `.github/workflows/` and `workflow-templates/` (minor and patch in one PR, a major in one PR per action across both directories). Each other repository's `ci.yml` gets its own Dependabot PR. The lint tools of `.github/lint/` are bumped by Dependabot too (`pip` and `npm`). When the pin of a step tool changes, also update `gitleaks-history.yml` for gitleaks.
+
+## Allowed actions
+
+Decision of SoutienScolaireApp/.github#8, taken when its PR is approved: the organisation moves from "allow all actions" to **selected actions**, with SHA pinning required:
+
+- `allowed_actions: selected`, `github_owned_allowed: true` (`actions/*`), `verified_allowed: false`;
+- `patterns_allowed`: the third-party actions in use, `pnpm/action-setup@*` only (2026-10-29). A new third-party action is added to this list in the PR that first uses it, after review;
+- `sha_pinning_required: true`: a `uses:` by tag or branch fails the run.
+
+On 2026-10-29 the organisation still has `allowed_actions: all` and `sha_pinning_required: false`. Applying the setting is an owner action (**Settings > Actions > General**), and the decision is to be added to ADR-014 in `SoutienScolaireApp/architecture`; both are follow-ups of SoutienScolaireApp/.github#8.
 
 ## Runners: GitHub-hosted now, self-hosted later
 
