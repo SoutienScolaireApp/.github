@@ -350,6 +350,35 @@ expect 1 "Dependabot: the action repository changed" dependabot_pr check \
 head=$(head_of '.')
 echo "# changed" >>"$head/.github/scripts/gate-integrity.sh"
 gate_change_case "the checker changed" "$head"
+
+# Lint tool pins (.github/lint/): a person's change is a gate change, a
+# verified Dependabot bump is not; adding or removing one always is.
+lint_base="$work/lint-base"
+tree "$lint_base" "$templates/ci-node.yml"
+mkdir -p "$lint_base/.github/lint"
+cp "$root"/templates/lint/{requirements.txt,package.json,package-lock.json} "$lint_base/.github/lint/"
+lint_head() {
+  rm -rf "$work/lint-head" && cp -R "$lint_base" "$work/lint-head"
+  echo "$work/lint-head"
+}
+for f in requirements.txt package.json package-lock.json; do
+  head=$(lint_head)
+  echo "# changed" >>"$head/.github/lint/$f"
+  expect 1 ".github/lint/$f changed by a person, no justification" \
+    env PR_JSON_FILE="$work/feat.pr.json" "$script" check "$lint_base" "$head"
+  expect 0 ".github/lint/$f changed by a person, justified" \
+    env PR_JSON_FILE="$work/justified.pr.json" "$script" check "$lint_base" "$head"
+  expect 0 ".github/lint/$f bumped in a verified Dependabot PR" \
+    env PR_COMMITS_FILE="$work/signed.commits.json" PR_JSON_FILE="$work/dependabot.pr.json" "$script" check "$lint_base" "$head"
+  expect 1 ".github/lint/$f in a Dependabot PR with an unsigned commit" \
+    env PR_COMMITS_FILE="$work/unsigned.commits.json" PR_JSON_FILE="$work/dependabot.pr.json" "$script" check "$lint_base" "$head"
+  head=$(lint_head)
+  rm "$head/.github/lint/$f"
+  expect 1 ".github/lint/$f removed in a verified Dependabot PR" \
+    env PR_COMMITS_FILE="$work/signed.commits.json" PR_JSON_FILE="$work/dependabot.pr.json" "$script" check "$lint_base" "$head"
+done
+expect 1 ".github/lint/requirements.txt added, no justification" feat_pr check \
+  "$(head_with .github/lint/requirements.txt <<<'yamllint==1.38.0')"
 gate_change_case "a local action added" "$(head_with .github/actions/setup/action.yml <<'EOF'
 runs: {using: composite, steps: [{run: "true", shell: bash}]}
 EOF

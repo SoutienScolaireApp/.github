@@ -370,13 +370,15 @@ jobs:
               *) grep -q '^sops:' "$1" && grep -Eq '^[[:space:]]+mac: ENC\[' "$1" ;;
             esac
           }
-          while IFS= read -r f; do
+          # NUL separated and unquoted: a non-ASCII name (café.sops.yml) is
+          # matched and opened as is, never skipped.
+          while IFS= read -r -d '' f; do
             count=$((count + 1))
             if ! is_encrypted "$f"; then
               echo "::error file=$f::not sops-encrypted"
               status=1
             fi
-          done < <(git ls-files | grep -E "$SOPS_FILE_REGEX" || true)
+          done < <(git -c core.quotepath=off ls-files -z | grep -zE "$SOPS_FILE_REGEX" || true)
           echo "$count sops file(s) checked."
           exit "$status"
 

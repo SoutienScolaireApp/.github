@@ -2,8 +2,9 @@
 # Checks of the CI templates (SoutienScolaireApp/.github#8), without network:
 # 1. drift: the common jobs, the gate, the shared tool pins and every action
 #    pin are the same in every workflow-templates/ci-*.yml and in this
-#    repository's own workflows; the lint lockfiles and the history scan of
-#    this repository are copies of the templates;
+#    repository's own workflows; the lint lockfiles, the root lint
+#    configurations and the history scan of this repository are copies of
+#    the templates;
 # 2. the `PR title and linked issue` script of ci-common, run against a stub
 #    of the GitHub API on a table of titles and bodies.
 #
@@ -68,8 +69,15 @@ done
 check "gitleaks-history.yml is the template" ".github/workflows/gitleaks-history.yml differs from the template" \
   cmp -s workflow-templates/gitleaks-history.yml .github/workflows/gitleaks-history.yml
 
+# The root lint configurations of this repository are the templates as is.
+for f in .yamllint.yml .markdownlint-cli2.yaml; do
+  check "$f is the template" "$f differs from templates/lint/$f" cmp -s "templates/lint/$f" "$f"
+done
+
 # --- 2. PR title and linked issue -------------------------------------------
-yq '.jobs."pr-conventions".steps[0].run' "$ref" >"$work/check.sh"
+yq '.jobs."pr-conventions".steps[] | select(.name == "Check the Conventional Commits title and the closing keyword") | .run' \
+  "$ref" >"$work/check.sh"
+[[ -s "$work/check.sh" ]] || { ko "the pr-conventions step was not found in $ref"; exit 1; }
 mkdir -p "$work/bin"
 cat >"$work/bin/curl" <<'STUB'
 #!/usr/bin/env bash
