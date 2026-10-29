@@ -36,16 +36,16 @@ env:
   ACTIONLINT_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
   OSV_SCANNER_VERSION: '2.7.0'
   OSV_SCANNER_SHA256: '160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b'
-  YAMLLINT_VERSION: '1.38.0'
-  MARKDOWNLINT_CLI2_VERSION: '0.23.3'
   PYTHON_VERSION: '3.13'
   NODE_VERSION: '24.21.0'
   ANSIBLE_CORE_VERSION: '2.21.4'
   ANSIBLE_LINT_VERSION: '26.9.0'
   # TODO(scaffold): inventory used by --syntax-check.
   ANSIBLE_INVENTORY: 'inventories/staging/hosts.yml'
-  # Tracked files that must be sops-encrypted.
-  SOPS_FILE_REGEX: '\.sops\.(ya?ml|json)$'
+  # Tracked files that must be sops-encrypted: a basename with a prefix
+  # before `.sops.` (vault.sops.yml). The sops config `.sops.yaml` has no
+  # prefix and is not matched. Tested by tests/sops-regex/run.sh.
+  SOPS_FILE_REGEX: '(^|/)[^/]+\.sops\.(ya?ml|json)$'
 
 jobs:
   pr-conventions:
@@ -86,13 +86,29 @@ jobs:
             status=1
           fi
 
-          # Dependabot PRs have no issue: exempt from the closing keyword only.
+          # Dependabot PRs have no issue: exempt from the issue suffix and the
+          # closing keyword only.
           if [[ "$author" == "dependabot[bot]" ]]; then
-            echo "Dependabot PR: closing keyword not required."
-          elif grep -Eiq '(^|[^[:alnum:]_])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+(([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+|https://github\.com/[[:alnum:]_.-]+/[[:alnum:]_.-]+/issues/[0-9]+)' <<<"$body"; then
+            echo "Dependabot PR: issue suffix and closing keyword not required."
+            exit "$status"
+          fi
+
+          suffix_re=' \(#[0-9]+\)$'
+          if [[ "$title" =~ $suffix_re ]]; then
+            echo "Issue suffix found."
+          else
+            echo "::error::PR title must end with its issue number: '<type>(<scope>): <description> (#<issue>)'."
+            status=1
+          fi
+
+          # The issue must be in this repository: '#<n>', '<this repo>#<n>' or
+          # its issues URL. A reference to another repository does not count.
+          repo_re=${REPO//./\\.}
+          closes_re="(^|[^[:alnum:]_])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+((${repo_re})?#[0-9]+|https://github\.com/${repo_re}/issues/[0-9]+)([^[:alnum:]_/]|$)"
+          if grep -Eiq "$closes_re" <<<"$body"; then
             echo "Closing keyword found."
           else
-            echo "::error::The PR body must link its issue with 'Closes #<n>' (or Fixes/Resolves, or 'Closes <owner>/<repo>#<n>')."
+            echo "::error::The PR body must link an issue of ${REPO} with 'Closes #<n>' (or Fixes/Resolves, or 'Closes ${REPO}#<n>')."
             status=1
           fi
           exit "$status"
@@ -176,9 +192,10 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for f in .yamllint.yml .markdownlint-cli2.yaml; do
+          for f in .yamllint.yml .markdownlint-cli2.yaml \
+            .github/lint/requirements.txt .github/lint/package.json .github/lint/package-lock.json; do
             if [[ ! -f "$f" ]]; then
-              echo "::error::$f is missing: copy it from templates/lint/ in SoutienScolaireApp/.github."
+              echo "::error::$f is missing: copy it from templates/lint/ in SoutienScolaireApp/.github (CI.md)."
               missing=1
             fi
           done
@@ -190,18 +207,30 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # actions/setup-node@v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # actions/setup-node@v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
 
+      # Lint tools come from .github/lint/: every package, transitive ones
+      # included, is pinned with its hash (pip --require-hashes, npm ci with
+      # the lockfile integrity). Bumped by Dependabot (pip, npm).
       - name: yamllint
         run: |
-          python -m pip install --disable-pip-version-check "yamllint==${YAMLLINT_VERSION}"
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary :all: --no-deps -r .github/lint/requirements.txt
           yamllint --strict .
 
+      # Installed outside the checkout, so no node_modules lands in the tree.
       - name: markdownlint
-        run: npx --yes "markdownlint-cli2@${MARKDOWNLINT_CLI2_VERSION}"
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/lint-node"
+          mkdir -p "$tools"
+          cp .github/lint/package.json .github/lint/package-lock.json "$tools/"
+          npm ci --prefix "$tools" --ignore-scripts --no-audit --no-fund
+          "$tools/node_modules/.bin/markdownlint-cli2"
 
   osv-scanner:
     name: Vulnerable dependencies (osv-scanner)
@@ -327,7 +356,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Every tracked file named *.sops.yml / *.sops.yaml / *.sops.json must
+      # Every tracked file named <name>.sops.yml / .yaml / .json must
       # carry sops metadata with a MAC: a decrypted copy committed by mistake
       # fails here. Decryption keys never reach CI.
       - name: Check that sops files are encrypted
@@ -341,13 +370,15 @@ jobs:
               *) grep -q '^sops:' "$1" && grep -Eq '^[[:space:]]+mac: ENC\[' "$1" ;;
             esac
           }
-          while IFS= read -r f; do
+          # NUL separated and unquoted: a non-ASCII name (café.sops.yml) is
+          # matched and opened as is, never skipped.
+          while IFS= read -r -d '' f; do
             count=$((count + 1))
             if ! is_encrypted "$f"; then
               echo "::error file=$f::not sops-encrypted"
               status=1
             fi
-          done < <(git ls-files | grep -E "$SOPS_FILE_REGEX" || true)
+          done < <(git -c core.quotepath=off ls-files -z | grep -zE "$SOPS_FILE_REGEX" || true)
           echo "$count sops file(s) checked."
           exit "$status"
 

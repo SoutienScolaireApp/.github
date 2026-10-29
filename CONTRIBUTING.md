@@ -53,7 +53,14 @@ An API change is never local: a pull request in `contracts` first, then the rele
 - No secret in git, ever, not even temporarily.
 - No real user data outside production: local and staging use synthetic data only.
 - No personal data in logs, issues, pull requests or screenshots.
-- Install the [gitleaks](https://github.com/gitleaks/gitleaks) pre-commit hook (recommended, not mandatory) to catch a secret before it is committed. In the code repositories, the `Quality Gate` runs gitleaks and osv-scanner (dependency audit) on every pull request regardless, and a finding blocks the merge.
+- Install the [gitleaks](https://github.com/gitleaks/gitleaks) pre-commit hook (recommended, not mandatory) to catch a secret before it is committed. Once per clone (worktrees share it), with gitleaks on your `PATH`:
+
+  ```bash
+  hook="$(git rev-parse --git-common-dir)/hooks/pre-commit"
+  printf '#!/bin/sh\nexec gitleaks git --pre-commit --staged --redact --verbose\n' >"$hook" && chmod +x "$hook"
+  ```
+
+  In the code repositories, the `Quality Gate` runs gitleaks and osv-scanner (dependency audit) on every pull request regardless, and a finding blocks the merge.
 
 ## Security
 

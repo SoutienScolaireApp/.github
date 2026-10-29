@@ -10,6 +10,7 @@ SchoolEngine repositories keep their dependencies up to date with Dependabot ver
 | [`node.yml`](templates/dependabot/node.yml) | pnpm repositories (`contracts`, `backend`, `parent-web`, `admin-web`) | `github-actions`, `npm` (reads `pnpm-lock.yaml`) |
 | [`flutter.yml`](templates/dependabot/flutter.yml) | `mobile-app` | `github-actions`, `pub` |
 | [`container.yml`](templates/dependabot/container.yml) | Entry to append in a repository that builds an OCI image (`backend`, `infrastructure` if it holds image definitions) | `docker` |
+| [`lint.yml`](templates/dependabot/lint.yml) | Entries to append in **every** repository: the lint tools of `.github/lint/` (CI.md) | `pip`, `npm` |
 
 ## Using a template
 
@@ -32,7 +33,7 @@ Keep the shared settings below when adapting a template; a different `directory`
 
 A Dependabot PR goes through the same `Quality Gate` as any other and is merged the same way: squash, with Céline's approval. It is exempt from the `Closes #n` check only, since it has no issue. A red gate on a Dependabot PR is fixed in that PR or in a linked ticket, never bypassed. Since `develop` requires branches to be up to date before merge, a Dependabot PR left behind `develop` is rebased by Dependabot itself: comment `@dependabot rebase` (it also rebases on its own when the PR conflicts). Never use Update branch or push to it: once someone else pushes, Dependabot stops updating that PR.
 
-Tool versions downloaded inside CI steps (gitleaks, osv-scanner, actionlint, oasdiff, the Flutter SDK, Node.js) are invisible to Dependabot and are bumped by hand in the CI templates (see [CI.md](CI.md)).
+Tool versions downloaded inside CI steps (gitleaks, osv-scanner, actionlint, oasdiff, the Flutter SDK, Node.js) are invisible to Dependabot and are bumped by hand in the CI templates (see [CI.md](CI.md)). In this repository, the `github-actions` entry also scans `workflow-templates/`, so the action SHAs of the templates are bumped in the same PR as `.github/workflows/`, and the `pip` and `npm` entries cover both `templates/lint/` and `.github/lint/`.
 
 ## Ignored majors
 

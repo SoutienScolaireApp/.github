@@ -9,13 +9,15 @@ Organization-level files of SoutienScolaireApp: the shared reusable workflow, th
 | `CONTRIBUTING.md` | Workflow and naming conventions shared by every repository. |
 | `SECURITY.md` | Private vulnerability reporting procedure. |
 | `CI.md` | Shape and rules of every code repository's `ci.yml`, the `Quality Gate` contract, `Gate integrity`. |
-| `workflow-templates/` | Organization workflow templates `ci-common`, `ci-node`, `ci-flutter`, `ci-openapi`, `ci-ansible` and `gate-integrity` (Actions > New workflow). |
-| `templates/lint/` | Default `.yamllint.yml` and `.markdownlint-cli2.yaml` copied to each repository root. |
+| `workflow-templates/` | Organization workflow templates `ci-common`, `ci-node`, `ci-flutter`, `ci-openapi`, `ci-ansible`, `gate-integrity` and `gitleaks-history` (Actions > New workflow). |
+| `templates/lint/` | Default `.yamllint.yml` and `.markdownlint-cli2.yaml` copied to each repository root, and the hashed lint tool pins (`requirements.txt`, `package.json`, `package-lock.json`) copied to each repository's `.github/lint/`. |
 | `templates/openapi/` | Default `.spectral.yaml` (extends `spectral:oas`) for the contracts repository. |
 | `DEPENDABOT.md` | Dependency update rules and how each repository adopts its template. |
-| `templates/dependabot/` | `dependabot.yml` templates: `common`, `node`, `flutter`, and the `container` entry. |
-| `.github/workflows/ci.yml` | CI of this repository, from the `ci-common` template plus a `scripts` job (shellcheck, `tests/*/run.sh`): produces the `Quality Gate` check. |
-| `.github/dependabot.yml` | Dependabot configuration of this repository, from the `common` template (`github-actions`). |
+| `templates/dependabot/` | `dependabot.yml` templates: `common`, `node`, `flutter`, and the `container` and `lint` entries. |
+| `.github/workflows/ci.yml` | CI of this repository, from the `ci-common` template plus a `scripts` job (actionlint on the templates, shellcheck, `tests/*/run.sh` including the template drift check `tests/ci-templates/`): produces the `Quality Gate` check. |
+| `.github/workflows/gitleaks-history.yml` | Weekly gitleaks scan of the whole history, copy of the `gitleaks-history` template. |
+| `.github/lint/` | Hashed lint tool pins of this repository, copies of `templates/lint/`. |
+| `.github/dependabot.yml` | Dependabot configuration of this repository, from the `common` template (`github-actions`, also scanning `workflow-templates/`) plus `pip` and `npm` for the lint tools. |
 | `.yamllint.yml`, `.markdownlint-cli2.yaml` | Lint configuration of this repository, copies of `templates/lint/`. |
 | `rulesets/` | Organization rulesets as code (`protect-develop.json`: protection of the default branch, required `Quality Gate` check) and how to change them. Read its warning before the first `--apply`. |
 | `workflow-templates/gate-integrity.yml`, `.github/workflows/gate-integrity.yml` | `Gate integrity` check (`pull_request_target`, the PR is read as data): template and this repository's copy. |
@@ -61,4 +63,4 @@ The workflow token needs no permission: the job authenticates as the App with a 
 
 This repository is public, so GitHub applies `CONTRIBUTING.md` and `SECURITY.md` as defaults to every repository of the organization that does not define its own ([GitHub docs: creating a default community health file](https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/creating-a-default-community-health-file)). They stay generic: they apply to `docs`, `journal` and `legal` as much as to the code repositories.
 
-Being public, this repository must never hold anything confidential: no secret, no personal data, no internal roadmap or security posture.
+Being public, this repository must never hold anything confidential: no secret, no personal data, no internal roadmap, no threat model and no security finding. The controls it documents (`CI.md`, `rulesets/`, the templates) are public on purpose: they describe how every change is checked, which any contributor needs to know, not where the product is weak.

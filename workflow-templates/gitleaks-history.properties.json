@@ -1,0 +1,10 @@
+{
+  "name": "SchoolEngine Secrets history scan",
+  "description": "Weekly gitleaks scan of the whole git history (every branch and tag), also run by hand before any mirror or migration.",
+  "categories": [
+    "Continuous integration"
+  ],
+  "filePatterns": [
+    "^\\.github/workflows/ci\\.yml$"
+  ]
+}

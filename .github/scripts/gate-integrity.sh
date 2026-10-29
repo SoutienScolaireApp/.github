@@ -45,6 +45,9 @@ readonly ACTIONS_DIR=".github/actions"
 readonly WATCHED_FILES=(.github/actionlint.yaml .github/actionlint.yml .github/dependabot.yml .github/dependabot.yaml
   .yamllint .yamllint.yml .yamllint.yaml .markdownlint-cli2.yaml .markdownlint-cli2.jsonc .markdownlint-cli2.cjs
   .markdownlint.yaml .markdownlint.yml .markdownlint.json .markdownlint.jsonc)
+# Hashed pins of the lint tools of the common jobs: a change is a gate change,
+# except a content change in a verified Dependabot PR (as for action SHAs).
+readonly LINT_PIN_FILES=(.github/lint/requirements.txt .github/lint/package.json .github/lint/package-lock.json)
 readonly WORKFLOW_KEYS='["name", "run-name", "on", "permissions", "env", "defaults", "concurrency", "jobs"]'
 # Triggers whose runs a PR author can cause: no write permission there.
 readonly PR_TRIGGERS='["pull_request", "pull_request_target", "pull_request_review", "pull_request_review_comment", "issue_comment", "workflow_run"]'
@@ -417,6 +420,21 @@ check_workflows() {
       gate_change "$path changed (configuration of the common jobs or of Dependabot; diff above)."
     fi
   done
+
+  for path in "${LINT_PIN_FILES[@]}"; do
+    if [[ -f "$base_dir/$path" && ! -f "$head_dir/$path" ]]; then
+      gate_change "$path was removed (lint tool pins of the common jobs)."
+    elif [[ ! -f "$base_dir/$path" && -f "$head_dir/$path" ]]; then
+      gate_change "$path was added (lint tool pins of the common jobs)."
+      untrusted "$(cat "$head_dir/$path")"
+    elif [[ -f "$head_dir/$path" ]] && ! show_diff "base: $path" "pr: $path" "$base_dir/$path" "$head_dir/$path"; then
+      if [[ "$dependabot" == true ]]; then
+        notice "$path changed in a verified Dependabot PR: lint tool bump, not a gate change."
+      else
+        gate_change "$path changed (lint tool pins of the common jobs; diff above)."
+      fi
+    fi
+  done
 }
 
 # --- The ignore files (ADR-014) ---------------------------------------------
@@ -566,6 +584,7 @@ extract() {
     case "$path" in
       .github/workflows/*.yml | .github/workflows/*.yaml | "$INTEGRITY_SCRIPT" | "$ACTIONS_DIR"/* | .gitleaks.toml | .gitleaksignore) ;;
       .github/actionlint.y*ml | .github/dependabot.y*ml | .yamllint* | .markdownlint*) ;;
+      .github/lint/requirements.txt | .github/lint/package.json | .github/lint/package-lock.json) ;;
       osv-scanner.toml | */osv-scanner.toml) [[ ! "$path" =~ $SKIPPED_DIR_RE ]] || continue ;;
       *) continue ;;
     esac
