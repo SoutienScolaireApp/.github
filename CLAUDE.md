@@ -1,91 +1,94 @@
-# `.github`
+# CLAUDE.md: `.github`
 
-Organization-wide GitHub configuration: the public landing page, the shared issue and pull request templates, and the reusable CI workflows. **The only public repository of the organization.**
+Rules for contributors and agents working in `SoutienScolaireApp/.github`. The `README.md` indexes every file, `CI.md`, `DEPENDABOT.md` and `rulesets/README.md` hold the procedures; this file states the rules and points to them.
 
-> Workspace process (branches, issues, pull requests) is in `../CLAUDE.md`.
+Organization-level configuration of SoutienScolaireApp: the reusable `add-to-project` workflow, the CI and Dependabot templates of the code repositories, the lint configurations, the organization ruleset kept as code, and the default `CONTRIBUTING.md` and `SECURITY.md`. **The only public repository of the organization.** Workspace process (branches, issues, pull requests): `../CLAUDE.md`.
 
-## Why this repository is public, and what follows
+Normative references: founding specification (`FOUNDING-SPECIFICATION.md` in `SoutienScolaireApp/docs`) §25 to §28, delivery standard §37 and §38; ADR-010 (contribution tracking) in `SoutienScolaireApp/docs`; ADR-014 (security tooling, Dependabot) in `SoutienScolaireApp/architecture`.
 
-GitHub renders an organization's landing page only when `profile/README.md` lives in a repository named exactly `.github` **that is public**. Everything else in the organization is private.
+`SchoolEngine/.github` was merged here (PR #6) and archived on 2026-10-26: never work there, nor in its old local checkout `../engine-github/`. References such as `SchoolEngine/.github#22` in the docs point to its read-only history.
 
-**Consequence, and it is the rule that matters most here: nothing confidential may ever be committed to this repository.** Not the founding specification (it carries the roadmap, the security posture, the threat model and GDPR gaps), not infrastructure details, not internal planning, not customer names. Assume every file is world-readable, because it is. If a members-only landing page is needed later, GitHub supports a separate private repository named `.github-private` using the same `profile/README.md` path.
+## Public repository: what follows
 
-## Architecture
+Public so that GitHub applies `CONTRIBUTING.md` and `SECURITY.md` as defaults to every repository without its own. Everything else in the organization is private.
+
+**Nothing confidential is ever committed here**: no secret, no personal data, no specification, roadmap, threat model, security finding, infrastructure detail or customer name. The controls (`CI.md`, `rulesets/`, the templates) are public on purpose: they say how a change is checked, not where the product is weak. Any public landing page (`profile/README.md`, not present today) is communication: its wording requires Céline's approval and is never written by an agent on its own initiative.
+
+## What exists on `develop`
 
 ```text
-profile/README.md                      public organization landing page
-.github/ISSUE_TEMPLATE/                shared issue forms
-.github/PULL_REQUEST_TEMPLATE.md       shared pull request template
-.github/workflows/                     reusable workflows called by other repositories
-CONTRIBUTING.md  SECURITY.md           shared community health files
+.github/workflows/add-to-project.yml        reusable: adds `contribution` issues to board #1 (tracking repositories only)
+.github/workflows/add-to-project-caller.yml caller for this repository (local path)
+.github/workflows/ci.yml                    own CI: ci-common + `scripts` job, produces `Quality Gate`
+.github/workflows/gate-integrity.yml        `Gate integrity` check, byte-identical copy of the template
+.github/workflows/gitleaks-history.yml      weekly history scan, copy of the template
+.github/scripts/gate-integrity.sh           checker copied unchanged into every code repository
+.github/lint/  .yamllint.yml  .markdownlint-cli2.yaml   copies of templates/lint/
+.github/dependabot.yml                      common template + pip/npm for the lint tools, also scans workflow-templates/
+workflow-templates/                         ci-common, ci-node, ci-flutter, ci-openapi, ci-ansible, gate-integrity, gitleaks-history
+templates/lint/                             yamllint and markdownlint-cli2 configs, hashed lint tool pins
+templates/dependabot/                       common, node, flutter, container, lint
+templates/openapi/.spectral.yaml            Spectral rule set for contracts
+rulesets/protect-develop.json               organization ruleset as code; scripts/apply-ruleset.sh applies it
+tests/                                      apply-ruleset, ci-templates (drift), gate-integrity, sops-regex
+CI.md  DEPENDABOT.md  CONTRIBUTING.md  SECURITY.md  README.md
 ```
 
-Files here are **inherited** by every repository that does not define its own. That inheritance is the whole point: one definition, eight repositories.
+Not here: issue forms and the pull request template. Each code repository carries its own `.github/ISSUE_TEMPLATE/`, PR template, `CONTRIBUTING.md`, `SECURITY.md`, `ci.yml` and `dependabot.yml`.
 
-## Reusable workflows: where this repository earns its keep
+## Non-negotiables
 
-With eight repositories and one main developer, duplicating the same CI eight times is where technical debt returns first. Shared pipelines live here and are called with one line:
+1. **No confidential content, ever** (see above).
+2. **Code CI is templated, not shared.** Only `add-to-project` is a reusable workflow. Each code repository owns one `ci.yml` copied from `workflow-templates/ci-<variant>.yml`; a variation is a filled `TODO(scaffold)` or an extra job, never a fork of the common jobs.
+3. **`Quality Gate`** is the single required check of `protect-develop`: never rename the job or its name, its `if:` is exactly `${{ !cancelled() }}`, and every other job is in its `needs:` (`CI.md`, "The Quality Gate").
+4. **Least privilege**: every workflow declares `permissions:`; `actions/checkout` with `persist-credentials: false`; no secret in a workflow or its logs; PR text never inside `${{ }}` in `run:`. `pull_request_target` is allowed only in `gate-integrity.yml`.
+5. **Pins**: third-party actions by full commit SHA with a version comment; tools downloaded in `run:` by version and `*_SHA256` in `env:`, bumped by hand in every template (a gate change).
+6. **Rulesets change in a PR first**, then `scripts/apply-ruleset.sh` (dry-run by default, `--apply` by an owner after merge). Never in the UI; if the UI was used, export back and open a PR (`rulesets/README.md`).
 
-```yaml
-jobs:
-  ci:
-    uses: SoutienScolaireApp/.github/.github/workflows/node-ci.yml@develop
-```
+## Templates and drift
 
-Fix a pipeline once, all repositories benefit. Workflows are **parameterised, not forked**: a repository that needs a variation passes an input, it does not copy the file. Pin third-party actions by commit SHA, never by a floating tag: a supply-chain compromise of a popular action would otherwise reach every repository at once.
+- **CI** (`CI.md`): the common jobs (`pr-conventions`, `gitleaks`, `actionlint`, `lint-yaml-markdown`, `osv-scanner`), the gate (its `needs:` aside), the `env:` pins and every action SHA are identical in all `workflow-templates/ci-*.yml` and in `.github/workflows/ci.yml`; `templates/lint/` equals `.github/lint/` and the root lint configs; `gitleaks-history.yml` equals its template. `tests/ci-templates/run.sh` fails otherwise.
+- **Downstream copies** do not follow automatically: after a template change, each consumer repository updates its `ci.yml`, `.github/lint/`, lint configs or `dependabot.yml` in its own PR, listed in the issue that changed the template. Expect drift until those PRs merge; the drift test only covers this repository.
+- **`Gate integrity`** (`CI.md`, "Gate integrity"): a PR that changes the gate needs a `## Gate change` section (20 letters or digits, HTML comments excluded); the double agent review (code and security) is the approval. It is not a required check yet: activation follows the order in `rulesets/README.md`.
+- **Dependabot** (`DEPENDABOT.md`): weekly, 7-day cooldown, minor and patch grouped, `chore(deps):` titles, label `tech-debt`; never push to or use Update branch on a Dependabot PR, comment `@dependabot rebase`.
+- **Lint**: yamllint for YAML, markdownlint-cli2 for Markdown, Prettier only for code and JSON in pnpm repositories (`CI.md`, "Formatting").
 
-## Conformance: the non-negotiables
+## Organization settings
 
-1. **No confidential content, ever.**
-2. **No secret in a workflow**, and no workflow that echoes a secret into logs. `pull_request_target` is forbidden unless a specific need is documented and reviewed: it runs with write permissions against untrusted code.
-3. **Least privilege**: every workflow declares explicit `permissions:` rather than inheriting the default write-all token.
-4. **The public landing page is communication.** Its wording requires Céline's approval; it is not written by an agent on its own initiative.
-
-## Templates: the expected shape
-
-Issue: **Context · Problem · Expected behavior · Acceptance criteria · Technical notes · Dependencies · Definition of Done.**
-
-Labels: type (`feature`, `bug`, `tech-debt`, `security`, `docs`, `test`), state (`blocked`, `needs-info`, `breaking-change-approved`), plus `epic` and `accessibility`. **Domain and priority are deliberately not labels**: the organization project board already carries the repository as a field, and priority lives in the board's `Priority` field; a label would create a second source that silently diverges. **GitHub Actions is case-sensitive on labels**: create each one once and never duplicate it with different casing.
-
-Tracking (ADR-010 in `docs`): only a board card (a lot card in `docs` or a task card in `journal`) carries the `contribution` label, which is what adds it to the board; technical work in the product repositories is opened as native sub-issues of a lot card, with no points and no `contribution` label.
-
-Pull request template: what changes, what to review first, contract impact (none / additive / breaking), and the Definition of Done checklist.
+Read through the API on 2026-10-31: 2FA required for members (enabled 2026-10-29), base permission `none`, members cannot create repositories, default `GITHUB_TOKEN` read-only, Actions cannot approve pull requests. Actions policy: still `allowed_actions: all` and `sha_pinning_required: false`; the decided target (selected actions, SHA pinning required) is in `CI.md`, "Allowed actions", and applying it is an owner action tracked in .github#13. Remaining hardening items: .github#11.
 
 ## Tests
 
-Workflows are validated by `actionlint` before merge, and a shared workflow is exercised on a real repository before being adopted everywhere. Changing a reusable workflow can break eight pipelines at once: change it on a branch, verify it against one consumer, then roll it out.
+`ci.yml` runs the common jobs plus `scripts`: actionlint on `workflow-templates/*.yml` (the `actionlint` job only reads `.github/workflows/`), shellcheck on every script, and every `tests/*/run.sh` (needs `yq`, `jq`, `python3`). A template change is verified on one consumer repository before rollout: one broken template can turn every repository red.
 
-## Documentation
+## Open follow-ups
 
-Every reusable workflow documents its inputs, its expectations of the calling repository, and how to migrate to it. A template change is announced in the pull request description because it affects everyone's daily workflow.
+- .github#11: organization hardening (outside contributor approval, onboarding checklist, App key storage).
+- .github#13: follow-ups of the template drift fixes, including applying the Actions policy.
+- .github#15: replace the remaining SchoolEngine mentions in the shared templates.
+- .github#16: stop Dependabot relocking `@usc/api-client` over SSH in `pnpm-lock.yaml`.
 
 ## Never do
 
 - Never commit anything you would not publish on the open internet.
 - Never grant a workflow more permissions than the job requires.
+- Never call `add-to-project` from a code repository: development tickets never go on board #1.
 - Never publish content about the organization or the product without Céline's approval.
+
+## Workflow
+
+Shared rules: `CONTRIBUTING.md` and `CI.md` of this repository. Dedicated worktree per ticket (`git worktree add ../.worktrees/.github/<issue> -b <type>/<issue>-<description> origin/develop`), Conventional Commits in English ending with `(#<issue>)`, PR against `develop` with `Closes #<issue>`, green `Quality Gate`, squash merge only with **Céline's explicit approval**. `develop` is protected by `protect-develop` (branch up to date required: update open PRs after each merge). Everything on GitHub is written in English. Never poll the GitHub API in a loop to follow CI.
 
 ## Task tracking (ADR-010)
 
-Every task in this repository is a **sub-issue of a card** on the organization board (`https://github.com/orgs/SoutienScolaireApp/projects/1`): a lot card (`A6.lot.L0` to `L9`, issues in `docs`), a lot planning card, or a task card in `journal`. Points live on the card, never on the task. Full rule: `adr/ADR-010-contribution-tracking.md` in the `docs` repository.
+- Every ticket of this repository is a **sub-issue of its lot epic** in `SoutienScolaireApp/architecture` (lot L0: architecture#1), tracked on project #2 "Development". The epic links the lot card in `docs` by URL; acceptance and points stay on that card.
+- A ticket never carries the `contribution` label, `Points` or `Bénéficiaire`: this repository calls `add-to-project`, so the label would put it on board #1.
+- Attach a new ticket to its epic with GraphQL (the `gh` CLI cannot):
 
-Before starting a task:
+  ```bash
+  EPIC=$(gh issue view 1 -R SoutienScolaireApp/architecture --json id -q .id)
+  gh api graphql -f query='mutation($p:ID!,$u:String!){addSubIssue(input:{issueId:$p,subIssueUrl:$u}){subIssue{number}}}' \
+    -f p="$EPIC" -f u="https://github.com/SoutienScolaireApp/.github/issues/<n>"
+  ```
 
-1. **Identify the parent card**, usually the lot in progress. If no card fits (unplanned fix, new request), stop and ask Céline: the work must first be costed as a card of its own at the weekly meeting.
-2. **Check that the card is costed**: `Points` and `Chiffré le` are set. Otherwise, do not start: work executed before costing falls back to the day-based count.
-
-```bash
-gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){title projectItems(first:5){nodes{status:fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}} points:fieldValueByName(name:"Points"){... on ProjectV2ItemFieldNumberValue{number}} costed:fieldValueByName(name:"Chiffré le"){... on ProjectV2ItemFieldDateValue{date}}}}}}}' -f o=SoutienScolaireApp -f r=docs -F n=<card>
-```
-
-3. **Open the task as an issue in this repository**, without the `contribution` label and without adding it to the board, then attach it to the card (the `gh` CLI cannot do it, use GraphQL):
-
-```bash
-PARENT=$(gh issue view <card> -R SoutienScolaireApp/docs --json id -q .id)
-gh api graphql -f query='mutation($p:ID!,$u:String!){addSubIssue(input:{issueId:$p,subIssueUrl:$u}){subIssue{number}}}' \
-  -f p="$PARENT" -f u="https://github.com/SoutienScolaireApp/<repo>/issues/<n>"
-```
-
-Then the usual cycle applies to the sub-issue: dedicated worktree, pull request `Closes #<n>`, green CI, squash merge after Céline's approval.
-
-An agent **never** edits `Points`, `Chiffré le`, `Accepté le`, `Contesté` or `Bénéficiaire` (those are set in session between the Parties), never adds a sub-issue to the board, never puts the `contribution` label on a sub-issue, and never creates a card carrying points on its own initiative. Issues, pull requests and merges are made from the contributor's own GitHub account: a squash commit takes the pull request author as its author.
+- No epic fits (unplanned fix, new request): stop and ask Céline. An agent never edits `Points`, `Chiffré le`, `Accepté le`, `Contesté` or `Bénéficiaire`.
