@@ -172,13 +172,15 @@ Decision of SoutienScolaireApp/.github#8, completed by SoutienScolaireApp/.githu
 - `allowed_actions: selected`, `github_owned_allowed: true` (`actions/*`), `verified_allowed: false`;
 - `patterns_allowed`: the third-party actions in use, nothing else. A new third-party action is added to this list in the PR that first uses it, after review:
   - `pnpm/action-setup@*`: installs pnpm in the Node.js and OpenAPI jobs (`workflow-templates/ci-node.yml`, `ci-openapi.yml` and their copies);
-  - `sigstore/cosign-installer@*`: installs cosign in `backend` `.github/workflows/image.yml`, which signs the published image digest and verifies the signature before deployment (ADR-013, Amendment 2);
-  - `dataaxiom/ghcr-cleanup-action@*`: deletes old backend image versions from GHCR in `backend` `.github/workflows/image-cleanup.yml` (retention);
+  - `sigstore/cosign-installer@*`: installs cosign in `backend` `.github/workflows/image.yml`, which signs the published image digest and verifies the signature before deployment (ADR-013, Amendment 2). It runs in the `publish` job (`contents: read`, `packages: write`, `id-token: write`) and in the `weekly-scan` job (`contents: read`, `packages: read`);
+  - `dataaxiom/ghcr-cleanup-action@*`: deletes old backend image versions from GHCR in `backend` `.github/workflows/image-cleanup.yml` (retention). It runs in the `cleanup` job (`contents: read`, `packages: write`);
 - `sha_pinning_required: true`: an action referenced by tag or branch fails the run.
 
-The `@*` suffix allows every version of the action, so a Dependabot bump of its SHA needs no change here; the pin itself is enforced by `sha_pinning_required`.
+The `@*` suffix allows every version of the action, so a Dependabot bump of its SHA needs no change here; the pin itself is enforced by `sha_pinning_required`. This is a deliberate trade-off: SHA pinning already forces a full SHA in every `uses:`, and a pattern per SHA would refuse every Dependabot bump until an owner edits the organisation setting by hand.
 
-**Local actions and reusable workflows.** The policy option allows the actions and reusable workflows of the organisation itself, so local actions (`uses: ./.github/actions/...`) and the reusable `add-to-project.yml` need no pattern. SHA pinning applies to actions only: a reusable workflow may still be referenced by branch or tag (`add-to-project.yml@develop`).
+**Bumps of the backend image actions are reviewed by a human.** A Dependabot PR that bumps `sigstore/cosign-installer` or `dataaxiom/ghcr-cleanup-action` brings new third-party code that runs with the job permissions above (package write, and an OIDC token for `publish`): it merges only after a person has read the release and the diff between the two SHAs, never on a green gate alone.
+
+**Local actions and reusable workflows.** The policy option allows the actions and reusable workflows of the organisation itself, so local actions (`uses: ./.github/actions/...`) and the reusable `add-to-project.yml` need no pattern. SHA pinning applies to actions only: a reusable workflow may still be referenced by branch or tag (`add-to-project.yml@develop`). A caller that references `add-to-project.yml@develop` runs whatever is on `develop` of this repository at the time of the run, with the secrets it passes (`secrets: inherit`): `develop` here stays protected by `protect-develop` and every change to the workflow is reviewed. Pinning a caller to a commit SHA of this repository is possible, at the cost of a manual bump in each caller; it is an option, not a requirement.
 
 **Applying it** is an owner action, at the organisation level, in **Settings > Actions > General**, "Policies":
 
@@ -196,10 +198,10 @@ The `@*` suffix allows every version of the action, so a Dependabot bump of its 
 
 **After applying**:
 
-- Read the result back, read-only: `gh api orgs/SoutienScolaireApp/actions/permissions` (`allowed_actions: selected`, `sha_pinning_required: true`) and `gh api orgs/SoutienScolaireApp/actions/permissions/selected-actions` (the three patterns, `verified_allowed: false`).
-- Re-run the `Quality Gate` of one open PR per stack, and watch the next run of `image.yml` and `image-cleanup.yml` in `backend`: a refused action shows as a failed run naming the action.
+- Read the result back, read-only, with a token of an organisation owner (the endpoints need organisation administration access): `gh api orgs/SoutienScolaireApp/actions/permissions` (`allowed_actions: selected`, `sha_pinning_required: true`) and `gh api orgs/SoutienScolaireApp/actions/permissions/selected-actions` (the three patterns, `verified_allowed: false`).
+- Re-run the `Quality Gate` of one open PR per stack. `image.yml` runs only on push to `develop` and on its weekly schedule, and `image-cleanup.yml` only weekly, so a refused action in `backend` may show up to a week later: check the next run of each in the Actions tab of `backend` (or `gh run list -R SoutienScolaireApp/backend -w image.yml`, then `-w image-cleanup.yml`). A refused action shows as a failed run naming the action.
 - A branch whose workflows still reference an action by tag fails once the setting is on: rebase it on `develop`.
-- **Residual risk, Dependabot.** The GitHub documentation does not say whether `sha_pinning_required` applies to the jobs Dependabot runs to compute its updates. Watch the next weekly Dependabot run of each repository (the "Dependabot Updates" runs in the Actions tab). If they fail on the policy, record it in SoutienScolaireApp/.github#13; the policy changes only by a PR to this section.
+- **Residual risk, Dependabot.** The GitHub documentation does not say whether `sha_pinning_required` applies to the jobs Dependabot runs to compute its updates. Watch the next weekly Dependabot run of each repository (the "Dependabot Updates" runs in the Actions tab). If they fail on the policy, do not switch SHA pinning off for the organisation: record the failure in SoutienScolaireApp/.github#13 and decide there first; the policy changes only by a PR to this section.
 
 Until SoutienScolaireApp/.github#13 is applied, the organisation runs `allowed_actions: all` with `sha_pinning_required: false`: the pins are checked in review and by `tests/ci-templates/run.sh` for the templates only. Once it is applied, this paragraph is replaced by the date of application (SoutienScolaireApp/.github#13).
 
