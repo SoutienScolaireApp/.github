@@ -46,6 +46,11 @@
 # patchedDependencies, packageExtensions, catalog or @usc text (any case,
 # anywhere), no top-level flow mapping and no `?` key.
 #
+# Canonical layout only: column-0 lines are lockfileVersion and the section
+# lines pnpm writes, each once; flow values only on the one-line resolution,
+# engines, cpu, os and libc fields and as {} on a snapshot key. package.json
+# dependency and overrides values are semver ranges or the exact specifier.
+#
 # A safety net against accidents and Dependabot rewrites, not a control
 # against a malicious writer with push access (the ruleset and review cover
 # that).
@@ -183,6 +188,7 @@ BEGIN {
   # Paths come from the environment: awk -v would interpret backslashes.
   me = ENVIRON["ME"]; PF = ENVIRON["PF"]; LF = ENVIRON["LF"]
   INTEG_RE = "^    resolution: \\{integrity: sha(1|256|384|512)-[A-Za-z0-9+/]+=*\\}$"
+  RANGE_RE = "^[\\^~<>=*xX0-9][0-9A-Za-z.^~<>=|*+ -]*$"
   REG_RE = "^(@[A-Za-z0-9._~-]+/)?[A-Za-z0-9._~-]+@[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?(\\([A-Za-z0-9@/._~+()-]*\\))?$"
   HTTPS_REPO = "https://github.com/SoutienScolaireApp/contracts.git"
   SSH_REPO = "git@github.com:SoutienScolaireApp/contracts.git"
@@ -204,6 +210,17 @@ BEGIN {
 # --- package.json -----------------------------------------------------------
 FILENAME == PF {
   l = tolower($0)
+  # Dependency blocks, one entry per line as npm and pnpm write them: every
+  # value is a semver range, or the exact contracts specifier checked below.
+  if ($0 ~ /"(dependencies|devDependencies|optionalDependencies|peerDependencies|overrides)"/) {
+    if ($0 ~ /^ *"(dependencies|devDependencies|optionalDependencies|peerDependencies|overrides)": \{$/) depblock = 1
+    else fail(PF, FNR, "package.json dependency block must be written one entry per line", $0)
+  } else if (depblock && $0 ~ /^ *\},?$/) depblock = 0
+  else if (depblock && !index($0, "\"@usc/api-client\"")) {
+    v = $0
+    if (!sub(/^ *"[^"]+": "/, "", v) || !sub(/",?$/, "", v) || v !~ RANGE_RE)
+      fail(PF, FNR, "package.json dependency value is not a semver range (github:, user/repo, workspace:, jsr:, catalog:, npm:, runtime: and URLs are refused)", $0)
+  }
   if (index(l, "git@") || index(l, "ssh://") || index(l, "git+ssh") || index(l, "git://") || index(l, "http://"))
     fail(PF, FNR, "package.json holds a git@, ssh://, git+ssh, git:// or http:// URL", $0)
   if (index(l, "pnpmfile") || index(l, "patcheddependencies") || index(l, "packageextensions"))
@@ -226,8 +243,12 @@ FILENAME == PF {
 /^[^ ]/ {
   close_other()
   sec = $0; sub(/:.*/, "", sec); entry = ""
-  if (sec == "patchedDependencies" || sec == "pnpmfileChecksum" || sec == "packageExtensionsChecksum" || sec == "catalogs")
-    fail(LF, FNR, "top-level " sec " is refused", $0)
+  # Only the canonical top-level lines pnpm writes, each section once.
+  if ($0 ~ /^lockfileVersion: \047[0-9]+\.[0-9]+\047$/) sec = "lockfileVersion"
+  else if ($0 !~ /^(settings|importers|packages|snapshots|overrides|ignoredOptionalDependencies|time):$/) {
+    fail(LF, FNR, "top-level line is not one pnpm writes (refused: other keys, quoting, flow values, a space before the colon)", $0); sec = "?"
+  }
+  if (seen_sec[sec]++ && sec != "?") fail(LF, FNR, "top-level " sec " appears twice", $0)
   scan($0, FNR); next
 }
 {
@@ -236,16 +257,25 @@ FILENAME == PF {
   if ($0 ~ /(^|[:-] )[&*][A-Za-z0-9_]/ || $0 ~ /^ *<<:/) fail(LF, FNR, "YAML anchor, alias or merge key: refused", $0)
   # pnpm indents by two: any other step could move a line out of its entry.
   if (ind % 2) { fail(LF, FNR, "odd indentation: refused", $0); next }
+  # deprecated: is free text, never a source: no URL scan, no flow rule.
+  if (sec == "packages" && ind == 4 && $0 ~ /^    deprecated: /) next
+  # Flow values only where pnpm writes them: one-line resolution, engines,
+  # cpu, os and libc of a package entry, and `{}` on a snapshot key.
+  if ((index($0, "{") || index($0, "[")) && \
+      !(sec == "packages" && ind == 4 && $0 ~ /^    (resolution|engines|cpu|os|libc): [{[][^{}[\]]*[}\]]$/) && \
+      !(sec == "snapshots" && ind == 2 && $0 ~ /: \{\}$/ && gsub(/[{}[\]]/, "&") == 2)) {
+    fail(LF, FNR, "flow value where pnpm writes none: refused", $0); next
+  }
   if (oline && ind <= 2) close_other()
   if (oline) {
     if (ind == 4 && $0 ~ /^    resolution:/) {
       if ($0 ~ INTEG_RE) ores++
       else fail(LF, FNR, "resolution of a registry package must be exactly {integrity: sha...}", $0)
-    } else if ($0 ~ /^ +(tarball|type|repo|directory|commit): /)
+    } else if (ind == 4 && $0 ~ /^    (tarball|type|repo|directory|commit): /)
       fail(LF, FNR, "resolution field outside the @usc/api-client entry", $0)
     scan($0, FNR); next
   }
-  if (sec == "snapshots" && $0 ~ /^ +(resolution|tarball|type|repo|directory|commit): /) { fail(LF, FNR, "resolution field under snapshots: refused", $0); next }
+  if (sec == "snapshots" && ind == 4 && $0 ~ /^    resolution:/) { fail(LF, FNR, "resolution under snapshots: refused", $0); next }
   if (sec == "overrides" && $0 ~ /link:|file:|npm:|:\/\/|@usc/) { fail(LF, FNR, "override to a link:, file:, npm: or URL source, or of @usc: refused", $0); next }
   if (sec == "importers" && $0 ~ /^ *(specifier|version): (link|file):/) { fail(LF, FNR, "link: or file: dependency: refused", $0); next }
 
@@ -267,7 +297,6 @@ FILENAME == PF {
   if (sec == "importers" && key($0) && KEY == "@usc/api-client" && KEY_REST == "") {
     entry = "importer"; entry_ind = ind; next
   }
-  if (sec == "importers" && index($0, "{")) { fail(LF, FNR, "flow mapping under importers: refused", $0); next }
   if (sec == "importers" && index($0, "://")) { fail(LF, FNR, "URL dependency outside the @usc/api-client entry", $0); next }
   if ((sec == "packages" || sec == "snapshots") && ind == 2) {
     if (!key($0)) {

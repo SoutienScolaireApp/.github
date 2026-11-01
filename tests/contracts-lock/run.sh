@@ -238,7 +238,51 @@ run 1 "pnpm.pnpmfile and patchedDependencies in package.json" https.lock package
 run 1 "pnpm.packageExtensions in package.json" https.lock package.json \
   pkg '"private": true,' '"private": true, "pnpm": {"packageExtensions": {"ssh2": {}}},'
 run 0 "pnpm.overrides to a registry version in package.json" https.lock package.json \
-  pkg '"private": true,' '"private": true, "pnpm": {"overrides": {"@esbuild-kit/core-utils>esbuild": "0.25.12"}},'
+  pkg '"private": true,' $'"private": true,\n  "pnpm": {\n    "overrides": {\n      "@esbuild-kit/core-utils>esbuild": "0.25.12"\n    }\n  },'
+
+# --- canonical layout only (final review: what pnpm itself writes) ---------
+# raw <want> <label> <lockfile text>: a whole lockfile, with package-none.json.
+raw() {
+  local want=$1 label=$2 rc=0 out
+  printf '%s\n' "$3" >"$work/raw-lock.yaml"
+  out=$("$guard" "$work/raw-lock.yaml" "$fx/package-none.json" 2>&1) || rc=$?
+  if [[ "$rc" -eq "$want" ]]; then
+    echo "ok   exit=$rc  $label"
+    [[ "$rc" -eq 0 ]] || sed -n '1s/^check-contracts-lock: [^:]*:[0-9]*: /       /p' <<<"$out"
+  else
+    echo "FAIL $label (exit $rc, want $want)"; printf '     %s\n' "$out"; fail=1
+  fi
+}
+run 0 "real pnpm 10.34.6 lockfile: libc, cpu, os, engines, nested peers" pnpm10-real.lock package-none.json
+run 0 "real pnpm 10.34.6 lockfile: a dependency named type, deprecated text with a URL" pnpm10-real2.lock package-none.json
+IMP=$'lockfileVersion: \'9.0\'\nimporters:\n  .:\n    dependencies:\n      foo:\n        specifier: 1.0.0\n        version: 1.0.0'
+GOODPK=$'packages:\n  foo@1.0.0:\n    resolution: {integrity: sha512-AAAA}\nsnapshots:\n  foo@1.0.0: {}'
+raw 0 "minimal canonical lockfile" "$IMP"$'\n'"$GOODPK"
+raw 0 "overrides to semver ranges and ignoredOptionalDependencies" \
+  $'lockfileVersion: \'9.0\'\nsettings:\n  autoInstallPeers: true\noverrides:\n  foo: ^1.2.3\n  bar@<2: 2.0.0\nignoredOptionalDependencies:\n  - fsevents\n'"${IMP#*$'\n'}"$'\n'"$GOODPK"
+raw 1 "quoted packages key (pnpm reads it)" "$IMP"$'\n\'packages\':\n  foo@1.0.0:\n    resolution: {tarball: \'https://evil.example/foo.tgz\'}\nsnapshots:\n  foo@1.0.0: {}'
+raw 1 "quoted packages key with integrity and tarball" "$IMP"$'\n\'packages\':\n  foo@1.0.0:\n    resolution: {integrity: sha512-AAAA, tarball: \'https://evil.example/foo.tgz\'}\nsnapshots:\n  foo@1.0.0: {}'
+raw 1 "space before the colon of packages" "$IMP"$'\npackages :\n  foo@1.0.0:\n    resolution: {tarball: \'https://evil.example/foo.tgz\'}\nsnapshots:\n  foo@1.0.0: {}'
+raw 1 "packages as a flow mapping" "$IMP"$'\npackages: {\'foo@1.0.0\': {resolution: {tarball: \'https://evil.example/foo.tgz\'}}}\nsnapshots:\n  foo@1.0.0: {}'
+raw 1 "importers as a flow mapping" $'lockfileVersion: \'9.0\'\nimporters: {\'.\': {dependencies: {foo: {specifier: 1.0.0, version: \'https://evil.example/foo.tgz\'}}}}'
+raw 1 "snapshots as a flow mapping" "$IMP"$'\npackages:\n  foo@1.0.0:\n    resolution: {integrity: sha512-AAAA}\nsnapshots: {foo@1.0.0: {dependencies: {bar: \'https://evil.example/b.tgz\'}}}'
+raw 1 "flow value on a snapshot key" "$IMP"$'\npackages:\n  foo@1.0.0:\n    resolution: {integrity: sha512-AAAA}\nsnapshots:\n  foo@1.0.0: {dependencies: {bar: 1.0.0}}'
+raw 1 "flow value on an importer field" "${IMP/specifier: 1.0.0/specifier: {a: 1}}"$'\n'"$GOODPK"
+raw 1 "packages twice" "$IMP"$'\n'"$GOODPK"$'\npackages:\n  bar@1.0.0:\n    resolution: {integrity: sha512-AAAA}'
+raw 1 "unknown top-level key" "$IMP"$'\n'"$GOODPK"$'\nextra:\n  x: 1'
+raw 1 "unquoted lockfileVersion" "${IMP/\'9.0\'/9.0}"$'\n'"$GOODPK"
+raw 1 "node@runtime: entry" "$IMP"$'\npackages:\n  node@runtime:24.11.0:\n    resolution: {integrity: sha512-AAAA}\nsnapshots:\n  node@runtime:24.11.0: {}'
+run 1 "github: dependency in package.json" https.lock package.json pkg '"ssh2": "1.17.0"' '"ssh2": "github:evil/x"'
+run 1 "user/repo dependency in package.json" https.lock package.json pkg '"ssh2": "1.17.0"' '"ssh2": "evil/x"'
+run 1 "workspace: dependency in package.json" https.lock package.json pkg '"ssh2": "1.17.0"' '"ssh2": "workspace:*"'
+run 1 "jsr: dependency in package.json" https.lock package.json pkg '"ssh2": "1.17.0"' '"ssh2": "jsr:@s/c@1"'
+run 1 "catalog: dependency in package.json" https.lock package.json pkg '"ssh2": "1.17.0"' '"ssh2": "catalog:"'
+run 1 "runtime: dependency in package.json" https.lock package.json pkg '"ssh2": "1.17.0"' '"node": "runtime:24.11.0"'
+run 1 "tarball dependency in package.json" https.lock package.json pkg '"ssh2": "1.17.0"' '"ssh2": "https://evil.example/foo.tgz"'
+run 1 "github: in pnpm.overrides" https.lock package.json \
+  pkg '"private": true,' $'"private": true,\n  "pnpm": {\n    "overrides": {\n      "foo": "github:evil/x"\n    }\n  },'
+run 1 "one-line package.json" none.lock package-none.json pkg "$(<"$fx/package-none.json")" '{"name":"t","dependencies":{"foo":"1.0.0"}}'
+run 0 "semver ranges in package.json" https.lock package.json pkg '"ssh2": "1.17.0"' '"ssh2": "^1.17.0 || >=2.0.0-rc.1 <3"'
 
 # --- repository root: pnpmfile and workspace settings -----------------------
 EXTRA_FILE=.pnpmfile.cjs EXTRA_CONTENT='module.exports = {}' \
