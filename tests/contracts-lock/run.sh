@@ -189,6 +189,57 @@ run 0 "registry key with nested peers" https.lock package.json \
 run 0 "escaped quote in a package.json script" https.lock package.json \
   pkg '"git config core.hooksPath .githooks"' '"node -e \"process.exit(0)\""'
 
+# --- other packages: resolutions, overrides, links (security re-review) -----
+LM='resolution: {integrity: sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ==}'
+run 1 "registry entry with a tarball resolution" https.lock package.json \
+  lock "$LM" 'resolution: {tarball: https://evil.example/x.tgz}'
+run 1 "registry entry with a git resolution on another host" https.lock package.json \
+  lock "$LM" 'resolution: {type: git, repo: https://gitlab.example/x/y.git, commit: 0123456789012345678901234567890123456789}'
+run 1 "registry entry with a block-style resolution" https.lock package.json \
+  lock "$LM" $'resolution:\n      tarball: https://evil.example/x.tgz\n      integrity: sha512-x'
+run 1 "registry entry without a resolution" https.lock package.json \
+  lock "    $LM"$'\n' ''
+run 1 "resolution in a snapshot entry" https.lock package.json \
+  lock '  lodash.merge@4.6.2: {}' $'  lodash.merge@4.6.2:\n    resolution: {tarball: https://evil.example/x.tgz}'
+run 1 "override to a tarball URL" https.lock package.json \
+  lock "'@esbuild-kit/core-utils>esbuild': 0.25.12" "'@esbuild-kit/core-utils>esbuild': https://evil.example/e.tgz"
+run 1 "override to link:" https.lock package.json \
+  lock "'@esbuild-kit/core-utils>esbuild': 0.25.12" "'@esbuild-kit/core-utils>esbuild': link:../evil"
+run 1 "override to file:" https.lock package.json \
+  lock "'@esbuild-kit/core-utils>esbuild': 0.25.12" "'@esbuild-kit/core-utils>esbuild': file:./x.tgz"
+run 1 "importer version link:" https.lock package.json \
+  lock $'        specifier: 1.17.0\n        version: 1.17.0' $'        specifier: link:../evil\n        version: link:../evil'
+run 1 "npm: alias on a tarball URL" https.lock package.json \
+  lock $'        specifier: 1.17.0' $'        specifier: npm:evil@https://evil.example/x.tgz'
+run 1 "patch_hash peer suffix (patches are refused)" https.lock package.json \
+  lock '  lodash.merge@4.6.2: {}' $'  lodash.merge@4.6.2(patch_hash=abcd1234efgh):\n    dependencies: {}'
+run 1 "top-level patchedDependencies" https.lock package.json \
+  lock $'importers:\n' $'patchedDependencies:\n  ssh2: p.patch\n\nimporters:\n'
+run 1 "top-level pnpmfileChecksum" https.lock package.json \
+  lock $'importers:\n' $'pnpmfileChecksum: sha256-x\n\nimporters:\n'
+run 1 "alias of a snapshot entry" https.lock package.json \
+  lock '  lodash.merge@4.6.2: {}' $'  lodash.merge@4.6.2: &x {}\n  zzz@1.0.0: *x'
+run 1 "complex ? key in the lockfile" https.lock package.json \
+  lock '  lodash.merge@4.6.2: {}' $'  ? lodash.merge@4.6.2\n  : {}'
+run 1 "space before the colon of the contracts importer key" https.lock package.json \
+  lock "      '@usc/api-client':" "      '@usc/api-client' :"
+run 1 "one-space indentation" https.lock package.json \
+  lock $'  \'@typescript-eslint/visitor-keys@8.71.2\':\n    resolution' $' \'@typescript-eslint/visitor-keys@8.71.2\':\n   resolution'
+run 1 "space before the colon in package.json" https.lock package.json \
+  pkg '"@usc/api-client":' '"@usc/api-client" :'
+run 1 "flow devDependencies on one line in package.json" https.lock package.json \
+  pkg '"devDependencies": {' '"devDependencies": {"@usc/api-client": "https://evil.example/x.tgz",'
+run 1 "escaped backslash before the closing quote of the key" https.lock package.json \
+  pkg '"ssh2": "1.17.0"' '"ssh2": "1.17.0", "@usc/api-client\\": "https://evil.example/x.tgz"'
+run 1 "pnpm.overrides to a tarball in package.json" https.lock package.json \
+  pkg '"private": true,' '"private": true, "pnpm": {"overrides": {"ssh2": "https://evil.example/s.tgz"}},'
+run 1 "pnpm.pnpmfile and patchedDependencies in package.json" https.lock package.json \
+  pkg '"private": true,' '"private": true, "pnpm": {"pnpmfile": "./x.cjs", "patchedDependencies": {"ssh2": "p.patch"}},'
+run 1 "pnpm.packageExtensions in package.json" https.lock package.json \
+  pkg '"private": true,' '"private": true, "pnpm": {"packageExtensions": {"ssh2": {}}},'
+run 0 "pnpm.overrides to a registry version in package.json" https.lock package.json \
+  pkg '"private": true,' '"private": true, "pnpm": {"overrides": {"@esbuild-kit/core-utils>esbuild": "0.25.12"}},'
+
 # --- repository root: pnpmfile and workspace settings -----------------------
 EXTRA_FILE=.pnpmfile.cjs EXTRA_CONTENT='module.exports = {}' \
   run 1 ".pnpmfile.cjs present" https.lock package.json
@@ -198,6 +249,16 @@ EXTRA_FILE=pnpm-workspace.yaml EXTRA_CONTENT=$'overrides:\n  ssh2: 1.17.0' \
   run 1 "pnpm-workspace.yaml with overrides" https.lock package.json
 EXTRA_FILE=pnpm-workspace.yaml EXTRA_CONTENT=$'catalog:\n  ssh2: 1.17.0' \
   run 1 "pnpm-workspace.yaml with a catalog" https.lock package.json
+EXTRA_FILE=pnpm-workspace.yaml EXTRA_CONTENT='"pnpmfile": ./x.cjs' \
+  run 1 "pnpm-workspace.yaml with a quoted pnpmfile key" https.lock package.json
+EXTRA_FILE=pnpm-workspace.yaml EXTRA_CONTENT="{packages: ['.'], pnpmfile: x.cjs}" \
+  run 1 "pnpm-workspace.yaml as a flow mapping" https.lock package.json
+EXTRA_FILE=pnpm-workspace.yaml EXTRA_CONTENT=$'? pnpmFile\n: x.cjs' \
+  run 1 "pnpm-workspace.yaml with a complex key" https.lock package.json
+EXTRA_FILE=pnpm-workspace.yaml EXTRA_CONTENT=$'packageExtensions:\n  ssh2:\n    dependencies:\n      evil: https://evil.example/x.tgz' \
+  run 1 "pnpm-workspace.yaml with packageExtensions" https.lock package.json
+EXTRA_FILE=.npmrc EXTRA_CONTENT='PNPMFILE=x.cjs' \
+  run 1 "uppercase pnpmfile setting in .npmrc" https.lock package.json
 EXTRA_FILE=pnpm-workspace.yaml EXTRA_CONTENT=$'onlyBuiltDependencies:\n  - esbuild' \
   run 0 "pnpm-workspace.yaml with an unrelated setting" https.lock package.json
 EXTRA_FILE=.npmrc EXTRA_CONTENT='engine-strict=true' \

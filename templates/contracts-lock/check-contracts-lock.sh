@@ -27,7 +27,14 @@
 # git@, ssh://, git+ssh, ssh+git://, git://, http://, github.com (any case)
 # or scp-like host:path URL. Every key under `packages:` and `snapshots:` is
 # either that exact entry or a registry key name@<semver>, with an optional
-# (peers) suffix: a tarball, link:, file: or git key of another package fails.
+# (peers) suffix (no `=`, so no patch_hash: patches are refused); a tarball,
+# link:, file: or git key of another package fails. Every other entry under
+# `packages:` has exactly `resolution: {integrity: sha...}`; no tarball, type,
+# repo, directory or commit field outside the contracts entry; no link: or
+# file: importer; no top-level patchedDependencies, pnpmfileChecksum,
+# packageExtensionsChecksum or catalogs; overrides only to registry versions.
+# package.json: no pnpmfile, patchedDependencies or packageExtensions, and no
+# https://, link:, file:, npm: or @usc outside the specifier line.
 #
 # Both files: no backslash escape (an escaped key would hide the dependency;
 # package.json allows only \" and \\, which npm scripts need), no CRLF, no
@@ -35,8 +42,13 @@
 # under importers. Repository root (the directory of the lockfile): no
 # .pnpmfile.cjs or .pnpmfile.mjs and no pnpmfile setting in .npmrc (pnpmfile
 # hooks run inside the install step that holds the token, --ignore-scripts or
-# not), and pnpm-workspace.yaml, if present, holds no overrides,
-# patchedDependencies, catalog(s), pnpmfile setting or @usc reference.
+# not), and pnpm-workspace.yaml, if present, holds no pnpmfile, overrides,
+# patchedDependencies, packageExtensions, catalog or @usc text (any case,
+# anywhere), no top-level flow mapping and no `?` key.
+#
+# A safety net against accidents and Dependabot rewrites, not a control
+# against a malicious writer with push access (the ruleset and review cover
+# that).
 #
 # The SSH form is a representation only: CI disables SSH and rewrites both
 # forms to authenticated HTTPS. Exit 0 when the files pass, 1 when they do
@@ -75,15 +87,17 @@ for f in .pnpmfile.cjs .pnpmfile.mjs; do
     status=1
   fi
 done
-if [ -f "$root/.npmrc" ] && grep -Eiq '^[[:space:]]*(global-)?pnpmfile[[:space:]]*=' "$root/.npmrc"; then
+# Substring matches, any case: quoting, flow style or complex keys cannot hide
+# a setting.
+if [ -f "$root/.npmrc" ] && grep -iq 'pnpmfile' "$root/.npmrc"; then
   echo "$me: $root/.npmrc: a pnpmfile setting is refused" >&2
   status=1
 fi
 ws=$root/pnpm-workspace.yaml
 if [ -f "$ws" ]; then
-  bad=$(grep -nE '^[[:space:]]*(overrides|patchedDependencies|catalogs?|pnpmfile|globalPnpmfile)[[:space:]]*:|@usc' "$ws" | cut -d: -f1 | tr '\n' ' ' || true)
+  bad=$(grep -niE 'pnpmfile|overrides|patcheddependencies|packageextensions|catalog|@usc|^[[:space:]]*[{?]' "$ws" | cut -d: -f1 | tr '\n' ' ' || true)
   if [ -n "$bad" ]; then
-    echo "$me: $ws: overrides, patchedDependencies, catalog, pnpmfile or @usc are refused (line(s) $bad)" >&2
+    echo "$me: $ws: pnpmfile, overrides, patchedDependencies, packageExtensions, catalog, @usc, a top-level flow mapping or a ? key are refused (line(s) $bad)" >&2
     status=1
   fi
 fi
@@ -148,6 +162,11 @@ function resolution(s, line, text, n, i, parts, k, v, seen, c) {
   if (seen["type"] != "git") { fail(LF, line, "@usc/api-client resolution.type is not git", text); return }
   nres++; res_commit = seen["commit"]
 }
+# Ends the registry entry under packages: being read, if any.
+function close_other() {
+  if (oline && ores != 1) fail(LF, oline, "registry package needs exactly one resolution: {integrity: sha...}", otext)
+  oline = 0
+}
 # Every line that is not an allowlisted field of the entry.
 function scan(s, line, l) {
   l = tolower(s)
@@ -163,6 +182,7 @@ function scan(s, line, l) {
 BEGIN {
   # Paths come from the environment: awk -v would interpret backslashes.
   me = ENVIRON["ME"]; PF = ENVIRON["PF"]; LF = ENVIRON["LF"]
+  INTEG_RE = "^    resolution: \\{integrity: sha(1|256|384|512)-[A-Za-z0-9+/]+=*\\}$"
   REG_RE = "^(@[A-Za-z0-9._~-]+/)?[A-Za-z0-9._~-]+@[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?(\\([A-Za-z0-9@/._~+()-]*\\))?$"
   HTTPS_REPO = "https://github.com/SoutienScolaireApp/contracts.git"
   SSH_REPO = "git@github.com:SoutienScolaireApp/contracts.git"
@@ -186,6 +206,10 @@ FILENAME == PF {
   l = tolower($0)
   if (index(l, "git@") || index(l, "ssh://") || index(l, "git+ssh") || index(l, "git://") || index(l, "http://"))
     fail(PF, FNR, "package.json holds a git@, ssh://, git+ssh, git:// or http:// URL", $0)
+  if (index(l, "pnpmfile") || index(l, "patcheddependencies") || index(l, "packageextensions"))
+    fail(PF, FNR, "package.json holds a pnpmfile, patchedDependencies or packageExtensions setting", $0)
+  if (!index($0, "\"@usc/api-client\"") && (index(l, "https://") || index(l, "@usc") || l ~ /"(link|file|npm):/))
+    fail(PF, FNR, "package.json holds an https://, link:, file: or npm: value or an @usc reference outside the @usc/api-client specifier", $0)
   if (index($0, "\"@usc/api-client\"")) {
     v = $0
     if (!sub(/^[ \t]*"@usc\/api-client": "/, "", v) || !sub(/",?$/, "", v) || v !~ SPEC_RE)
@@ -199,11 +223,31 @@ FILENAME == PF {
 
 # --- pnpm-lock.yaml ---------------------------------------------------------
 /^[ \t]*$/ { next }
-/^[^ ]/ { sec = $0; sub(/:.*/, "", sec); entry = ""; scan($0, FNR); next }
+/^[^ ]/ {
+  close_other()
+  sec = $0; sub(/:.*/, "", sec); entry = ""
+  if (sec == "patchedDependencies" || sec == "pnpmfileChecksum" || sec == "packageExtensionsChecksum" || sec == "catalogs")
+    fail(LF, FNR, "top-level " sec " is refused", $0)
+  scan($0, FNR); next
+}
 {
   ind = indent($0)
   if (entry != "" && ind <= entry_ind) entry = ""
   if ($0 ~ /(^|[:-] )[&*][A-Za-z0-9_]/ || $0 ~ /^ *<<:/) fail(LF, FNR, "YAML anchor, alias or merge key: refused", $0)
+  # pnpm indents by two: any other step could move a line out of its entry.
+  if (ind % 2) { fail(LF, FNR, "odd indentation: refused", $0); next }
+  if (oline && ind <= 2) close_other()
+  if (oline) {
+    if (ind == 4 && $0 ~ /^    resolution:/) {
+      if ($0 ~ INTEG_RE) ores++
+      else fail(LF, FNR, "resolution of a registry package must be exactly {integrity: sha...}", $0)
+    } else if ($0 ~ /^ +(tarball|type|repo|directory|commit): /)
+      fail(LF, FNR, "resolution field outside the @usc/api-client entry", $0)
+    scan($0, FNR); next
+  }
+  if (sec == "snapshots" && $0 ~ /^ +(resolution|tarball|type|repo|directory|commit): /) { fail(LF, FNR, "resolution field under snapshots: refused", $0); next }
+  if (sec == "overrides" && $0 ~ /link:|file:|npm:|:\/\/|@usc/) { fail(LF, FNR, "override to a link:, file:, npm: or URL source, or of @usc: refused", $0); next }
+  if (sec == "importers" && $0 ~ /^ *(specifier|version): (link|file):/) { fail(LF, FNR, "link: or file: dependency: refused", $0); next }
 
   if (entry == "importer") {
     if ($0 ~ /^ *specifier: /) {
@@ -236,6 +280,10 @@ FILENAME == PF {
   if ((sec == "packages" || sec == "snapshots") && ind == 2 && index(KEY, "@usc/api-client@") != 1 && KEY !~ REG_RE) {
     fail(LF, FNR, sec " key is neither name@<semver>(peers) nor the @usc/api-client entry", $0); next
   }
+  if (sec == "packages" && ind == 2 && index(KEY, "@usc/api-client@") != 1) {
+    if (KEY_REST != "") { fail(LF, FNR, "registry package entry without its resolution", $0); next }
+    oline = FNR; otext = $0; ores = 0; scan($0, FNR); next
+  }
   if ((sec == "packages" || sec == "snapshots") && ind == 2 && index(KEY, "@usc/api-client@") == 1) {
     if (KEY_REST != "" && !(sec == "snapshots" && KEY_REST == " {}")) {
       fail(LF, FNR, "unexpected value on the @usc/api-client " sec " key", $0); next
@@ -248,6 +296,7 @@ FILENAME == PF {
   scan($0, FNR)
 }
 END {
+  close_other()
   if (npkg > 1) fail(LF, pkg_line, "more than one @usc/api-client entry under packages:", "")
   if (npkg == 1 && nres != 1) fail(LF, pkg_line, "the @usc/api-client entry needs exactly one valid resolution", "")
   if (nurl > 0 && npkg == 0) fail(LF, url_line[1], "@usc/api-client has no entry under packages:", url_text[1])
