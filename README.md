@@ -11,6 +11,7 @@ Organization-level files of SoutienScolaireApp: the shared reusable workflow, th
 | `CI.md` | Shape and rules of every code repository's `ci.yml`, the `Quality Gate` contract, `Gate integrity`. |
 | `workflow-templates/` | Organization workflow templates `ci-common`, `ci-node`, `ci-flutter`, `ci-openapi`, `ci-ansible`, `gate-integrity` and `gitleaks-history` (Actions > New workflow). |
 | `templates/lint/` | Default `.yamllint.yml` and `.markdownlint-cli2.yaml` copied to each repository root, and the hashed lint tool pins (`requirements.txt`, `package.json`, `package-lock.json`) copied to each repository's `.github/lint/`. |
+| `templates/contracts-lock/` | `check-contracts-lock.sh`, the lockfile guard of the `@usc/api-client` entry (ADR-013 Amendment 3), copied unchanged to each pnpm consumer's `.github/scripts/`; tests in `tests/contracts-lock/` (see `CI.md`, "The contracts lockfile guard"). |
 | `templates/openapi/` | Default `.spectral.yaml` (extends `spectral:oas`) for the contracts repository. |
 | `DEPENDABOT.md` | Dependency update rules and how each repository adopts its template. |
 | `templates/dependabot/` | `dependabot.yml` templates: `common`, `node`, `flutter`, and the `container` and `lint` entries. |

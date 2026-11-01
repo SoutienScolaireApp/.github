@@ -1,0 +1,15 @@
+{
+  "name": "contracts-lock-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.34.6",
+  "scripts": {
+    "hooks:install": "git config core.hooksPath .githooks"
+  },
+  "dependencies": {
+    "ssh2": "1.17.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "5.0.5"
+  }
+}
