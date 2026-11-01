@@ -55,7 +55,7 @@ Not here: issue forms and the pull request template. Each code repository carrie
 
 ## Organization settings
 
-2FA is required for members and the base permission is `none`. Actions policy hardening is tracked in .github#13; the target policy is in `CI.md`, "Allowed actions".
+2FA is required for members and the base permission is `none`. The Actions policy (selected actions, SHA pinning required) is applied since 2026-11-01 (.github#13); the policy and the owner procedure are in `CI.md`, "Allowed actions".
 
 ## Tests
 
@@ -64,7 +64,7 @@ Not here: issue forms and the pull request template. Each code repository carrie
 ## Open follow-ups
 
 - .github#11: organization onboarding and contributor policy.
-- .github#13: follow-ups of the template drift fixes, including applying the Actions policy.
+- .github#13: follow-ups of the template drift fixes (the Actions policy is applied since 2026-11-01; the Dependabot residual risk of `CI.md`, "Allowed actions", is still watched).
 - .github#15: replace the remaining SchoolEngine mentions in the shared templates.
 - .github#16: stop Dependabot relocking `@usc/api-client` over SSH in `pnpm-lock.yaml`.
 

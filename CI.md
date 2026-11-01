@@ -48,7 +48,7 @@ The templates are only offered from the default branch (`develop`) of this repos
 - Fork guard on every job except the gate: `if: github.event.pull_request.head.repo.full_name == github.repository`. A fork PR skips every job and fails the gate: it never runs code with the repository's token.
 - `timeout-minutes` on every job.
 - `actions/checkout` always with `persist-credentials: false`.
-- Third-party actions pinned by full commit SHA with a `# owner/action@vX.Y.Z` comment (checked in review and by `tests/ci-templates/run.sh` for the templates; the organisation setting is not enforced yet, see [Allowed actions](#allowed-actions)). No wrapper action for the security tools.
+- Third-party actions pinned by full commit SHA with a `# owner/action@vX.Y.Z` comment (checked in review and by `tests/ci-templates/run.sh` for the templates; and enforced by the organisation setting `sha_pinning_required` since 2026-11-01, see [Allowed actions](#allowed-actions)). No wrapper action for the security tools.
 - Lint tools (yamllint, markdownlint-cli2) installed from `.github/lint/`, every package including transitive ones pinned with its hash: `pip install --require-hashes --only-binary :all: --no-deps -r .github/lint/requirements.txt`, and `npm ci --ignore-scripts` of `package.json` and `package-lock.json` in `$RUNNER_TEMP` (no `node_modules` in the checkout). Dependabot bumps them (`pip`, `npm`).
 - Tool versions pinned in the workflow `env:` block, one place per template, each with the sha256 of its linux amd64 release asset (`GITLEAKS_SHA256`, `ACTIONLINT_SHA256`, `OSV_SCANNER_SHA256`, `OASDIFF_SHA256`, `YQ_SHA256`, `SPECTRAL_SHA256`, `FLUTTER_SHA256`). The download is checked against that pinned value, never against a checksum file of the same release (an attacker who can replace an asset can replace the checksum file next to it).
 - PR title, body and labels never appear in a `${{ }}` expression inside `run:` (script injection): they are fetched by the script and kept in shell variables.
@@ -167,7 +167,7 @@ Versions downloaded in `run:` steps are not seen by Dependabot. To bump one: cha
 
 ## Allowed actions
 
-Decision of SoutienScolaireApp/.github#8, completed by SoutienScolaireApp/.github#17 after an audit (2026-10-31) of every `uses:` on every branch of the non-archived repositories, and recorded in ADR-014 (Amendment 2) in `SoutienScolaireApp/architecture`. The organisation moves from "allow all actions" to **selected actions**, with SHA pinning required:
+Decision of SoutienScolaireApp/.github#8, completed by SoutienScolaireApp/.github#17 after an audit (2026-10-31) of every `uses:` on every branch of the non-archived repositories, and recorded in ADR-014 (Amendment 2) in `SoutienScolaireApp/architecture`. The organisation moved from "allow all actions" to **selected actions**, with SHA pinning required. The policy is **applied since 2026-11-01** (SoutienScolaireApp/.github#13):
 
 - `allowed_actions: selected`, `github_owned_allowed: true` (`actions/*`), `verified_allowed: false`;
 - `patterns_allowed`: the third-party actions in use, nothing else. A new third-party action is added to this list in the PR that first uses it, after review:
@@ -182,7 +182,7 @@ The `@*` suffix allows every version of the action, so a Dependabot bump of its 
 
 **Local actions and reusable workflows.** The policy option allows the actions and reusable workflows of the organisation itself, so local actions (`uses: ./.github/actions/...`) and the reusable `add-to-project.yml` need no pattern. SHA pinning applies to actions only: a reusable workflow may still be referenced by branch or tag (`add-to-project.yml@develop`). A caller that references `add-to-project.yml@develop` runs whatever is on `develop` of this repository at the time of the run, with the secrets it passes (`secrets: inherit`): `develop` here stays protected by `protect-develop` and every change to the workflow is reviewed. Pinning a caller to a commit SHA of this repository is possible, at the cost of a manual bump in each caller; it is an option, not a requirement.
 
-**Applying it** is an owner action, at the organisation level, in **Settings > Actions > General**, "Policies":
+**Applying it again, or changing it,** is an owner action (the policy changes only by a PR to this section first), at the organisation level, in **Settings > Actions > General**, "Policies":
 
 1. Select **Allow SoutienScolaireApp, and select non-SoutienScolaireApp, actions and reusable workflows**.
 2. **Allow actions created by GitHub**: on.
@@ -203,7 +203,7 @@ The `@*` suffix allows every version of the action, so a Dependabot bump of its 
 - A branch whose workflows still reference an action by tag fails once the setting is on: rebase it on `develop`.
 - **Residual risk, Dependabot.** The GitHub documentation does not say whether `sha_pinning_required` applies to the jobs Dependabot runs to compute its updates. Watch the next weekly Dependabot run of each repository (the "Dependabot Updates" runs in the Actions tab). If they fail on the policy, do not switch SHA pinning off for the organisation: record the failure in SoutienScolaireApp/.github#13 and decide there first; the policy changes only by a PR to this section.
 
-Until SoutienScolaireApp/.github#13 is applied, the organisation runs `allowed_actions: all` with `sha_pinning_required: false`: the pins are checked in review and by `tests/ci-templates/run.sh` for the templates only. Once it is applied, this paragraph is replaced by the date of application (SoutienScolaireApp/.github#13).
+Applied on 2026-11-01 (SoutienScolaireApp/.github#13). Read back through the API that day: `allowed_actions: selected`, `github_owned_allowed: true`, `verified_allowed: false`, `patterns_allowed` with the three patterns above, `sha_pinning_required: true`. Before that date the organisation allowed all actions without the SHA pinning requirement.
 
 ## Runners: GitHub-hosted now, self-hosted later
 
