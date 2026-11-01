@@ -25,7 +25,18 @@
 # type git, and no tarball; every URL commit equals resolution.commit. The
 # importer `specifier:` mirrors package.json. Every other line fails on any
 # git@, ssh://, git+ssh, ssh+git://, git://, http://, github.com (any case)
-# or scp-like host:path URL.
+# or scp-like host:path URL. Every key under `packages:` and `snapshots:` is
+# either that exact entry or a registry key name@<semver>, with an optional
+# (peers) suffix: a tarball, link:, file: or git key of another package fails.
+#
+# Both files: no backslash escape (an escaped key would hide the dependency;
+# package.json allows only \" and \\, which npm scripts need), no CRLF, no
+# byte order mark; the lockfile has no YAML anchor, alias or flow mapping
+# under importers. Repository root (the directory of the lockfile): no
+# .pnpmfile.cjs or .pnpmfile.mjs and no pnpmfile setting in .npmrc (pnpmfile
+# hooks run inside the install step that holds the token, --ignore-scripts or
+# not), and pnpm-workspace.yaml, if present, holds no overrides,
+# patchedDependencies, catalog(s), pnpmfile setting or @usc reference.
 #
 # The SSH form is a representation only: CI disables SSH and rewrites both
 # forms to authenticated HTTPS. Exit 0 when the files pass, 1 when they do
@@ -54,6 +65,28 @@ lock=$1
 pkg=$2
 case $lock in /*) ;; *) lock=./$lock ;; esac
 case $pkg in /*) ;; *) pkg=./$pkg ;; esac
+
+# Settings that change what pnpm installs, outside the two files.
+status=0
+root=$(dirname -- "$1")
+for f in .pnpmfile.cjs .pnpmfile.mjs; do
+  if [ -e "$root/$f" ]; then
+    echo "$me: $root/$f: a pnpmfile is refused, its hooks run while the contracts token is reachable" >&2
+    status=1
+  fi
+done
+if [ -f "$root/.npmrc" ] && grep -Eiq '^[[:space:]]*(global-)?pnpmfile[[:space:]]*=' "$root/.npmrc"; then
+  echo "$me: $root/.npmrc: a pnpmfile setting is refused" >&2
+  status=1
+fi
+ws=$root/pnpm-workspace.yaml
+if [ -f "$ws" ]; then
+  bad=$(grep -nE '^[[:space:]]*(overrides|patchedDependencies|catalogs?|pnpmfile|globalPnpmfile)[[:space:]]*:|@usc' "$ws" | cut -d: -f1 | tr '\n' ' ' || true)
+  if [ -n "$bad" ]; then
+    echo "$me: $ws: overrides, patchedDependencies, catalog, pnpmfile or @usc are refused (line(s) $bad)" >&2
+    status=1
+  fi
+fi
 
 # The program holds no single quote (written \047), so it is one literal.
 # shellcheck disable=SC2016  # an awk program, not shell expansions
@@ -128,11 +161,24 @@ function scan(s, line, l) {
     fail(LF, line, "unexpected @usc/api-client line", s)
 }
 BEGIN {
+  # Paths come from the environment: awk -v would interpret backslashes.
+  me = ENVIRON["ME"]; PF = ENVIRON["PF"]; LF = ENVIRON["LF"]
+  REG_RE = "^(@[A-Za-z0-9._~-]+/)?[A-Za-z0-9._~-]+@[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?(\\([A-Za-z0-9@/._~+()-]*\\))?$"
   HTTPS_REPO = "https://github.com/SoutienScolaireApp/contracts.git"
   SSH_REPO = "git@github.com:SoutienScolaireApp/contracts.git"
   HTTPS_URL = "git+" HTTPS_REPO
   SSH_URL = "git+ssh://git@github.com/SoutienScolaireApp/contracts.git"
   SPEC_RE = "^git\\+https://github\\.com/SoutienScolaireApp/contracts\\.git#v[0-9]+\\.[0-9]+\\.[0-9]+&path:/clients/typescript$"
+}
+
+# --- both files -------------------------------------------------------------
+{
+  file = (FILENAME == PF) ? PF : LF
+  if (FNR == 1 && substr($0, 1, 3) == "\357\273\277") fail(file, FNR, "byte order mark: refused", "")
+  if (sub(/\r$/, "")) { if (!crlf[file]++) fail(file, FNR, "CRLF line endings are not supported", "") }
+  t = $0
+  if (file == PF) { gsub(/\\\\/, "", t); gsub(/\\"/, "", t) }
+  if (index(t, "\\")) fail(file, FNR, "backslash escape: refused (an escaped key could hide @usc/api-client)", $0)
 }
 
 # --- package.json -----------------------------------------------------------
@@ -157,6 +203,7 @@ FILENAME == PF {
 {
   ind = indent($0)
   if (entry != "" && ind <= entry_ind) entry = ""
+  if ($0 ~ /(^|[:-] )[&*][A-Za-z0-9_]/ || $0 ~ /^ *<<:/) fail(LF, FNR, "YAML anchor, alias or merge key: refused", $0)
 
   if (entry == "importer") {
     if ($0 ~ /^ *specifier: /) {
@@ -176,7 +223,20 @@ FILENAME == PF {
   if (sec == "importers" && key($0) && KEY == "@usc/api-client" && KEY_REST == "") {
     entry = "importer"; entry_ind = ind; next
   }
-  if ((sec == "packages" || sec == "snapshots") && ind == 2 && key($0) && index(KEY, "@usc/api-client@") == 1) {
+  if (sec == "importers" && index($0, "{")) { fail(LF, FNR, "flow mapping under importers: refused", $0); next }
+  if (sec == "importers" && index($0, "://")) { fail(LF, FNR, "URL dependency outside the @usc/api-client entry", $0); next }
+  if ((sec == "packages" || sec == "snapshots") && ind == 2) {
+    if (!key($0)) {
+      # Unquoted key: `  name@1.2.3:` or `  name@1.2.3: {}`.
+      KEY = substr($0, 3); KEY_REST = ""
+      if (sub(/: \{\}$/, "", KEY)) KEY_REST = " {}"
+      else if (!sub(/:$/, "", KEY)) { fail(LF, FNR, "malformed " sec " key", $0); next }
+    }
+  }
+  if ((sec == "packages" || sec == "snapshots") && ind == 2 && index(KEY, "@usc/api-client@") != 1 && KEY !~ REG_RE) {
+    fail(LF, FNR, sec " key is neither name@<semver>(peers) nor the @usc/api-client entry", $0); next
+  }
+  if ((sec == "packages" || sec == "snapshots") && ind == 2 && index(KEY, "@usc/api-client@") == 1) {
     if (KEY_REST != "" && !(sec == "snapshots" && KEY_REST == " {}")) {
       fail(LF, FNR, "unexpected value on the @usc/api-client " sec " key", $0); next
     }
@@ -205,4 +265,7 @@ END {
 }
 '
 
-exec awk -v me="$me" -v PF="$pkg" -v LF="$lock" "$prog" "$pkg" "$lock"
+rc=0
+ME=$me PF=$pkg LF=$lock awk "$prog" "$pkg" "$lock" || rc=$?
+if [ "$rc" -eq 0 ] && [ "$status" -ne 0 ]; then rc=1; fi
+exit "$rc"

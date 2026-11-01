@@ -26,7 +26,9 @@ SREPO='repo: git@github.com:SoutienScolaireApp/contracts.git'
 
 # run <want exit> <label> <lock base> <package base> [lock|pkg <old> <new>]...
 # Each triple replaces every literal <old> with <new> in the lock or the
-# package file. <old> may be '$' to append <new> at the end of the file.
+# package file. <old> may be '$' to append <new> at the end of the file, or
+# CRLF to turn the line endings into CRLF. EXTRA_FILE and EXTRA_CONTENT, when
+# set, write one more file next to the lockfile (the repository root).
 run() {
   local want=$1 label=$2 lock pkg file old new rc=0 out
   lock=$(<"$fx/$3")
@@ -35,7 +37,9 @@ run() {
   while (($#)); do
     file=$1 old=$2 new=$3
     shift 3
-    if [[ "$file" == lock ]]; then
+    if [[ "$old" == CRLF ]]; then
+      if [[ "$file" == lock ]]; then lock=${lock//$'\n'/$'\r\n'}; else pkg=${pkg//$'\n'/$'\r\n'}; fi
+    elif [[ "$file" == lock ]]; then
       if [[ "$old" == '$' ]]; then lock+=$'\n'"$new"; else
         [[ "$lock" == *"$old"* ]] || { echo "FAIL $label: '$old' not in the lockfile"; fail=1; return; }
         lock=${lock//"$old"/"$new"}
@@ -45,6 +49,8 @@ run() {
       pkg=${pkg//"$old"/"$new"}
     fi
   done
+  rm -f "$work/.pnpmfile.cjs" "$work/.npmrc" "$work/pnpm-workspace.yaml"
+  if [[ -n "${EXTRA_FILE:-}" ]]; then printf '%s\n' "$EXTRA_CONTENT" >"$work/$EXTRA_FILE"; fi
   printf '%s\n' "$lock" >"$work/pnpm-lock.yaml"
   printf '%s\n' "$pkg" >"$work/package.json"
   out=$("$guard" "$work/pnpm-lock.yaml" "$work/package.json" 2>&1) || rc=$?
@@ -152,6 +158,51 @@ run 1 "branch instead of an exact tag" https.lock package.json \
 run 1 "another owner in package.json" https.lock package.json \
   pkg SoutienScolaireApp/contracts EvilOrg/contracts lock "specifier: $SPEC" "specifier: ${SPEC/SoutienScolaireApp/EvilOrg}"
 
+# --- escapes, other keys, YAML forms (security review of PR #23) -----------
+run 1 "escaped key in package.json" https.lock package.json \
+  pkg '"@usc/api-client":' '"\u0040usc/api-client":'
+run 1 "escaped key in the lockfile" https.lock package.json \
+  lock "      '@usc/api-client':" '      "\u0040usc/api-client":'
+run 1 "tarball key for another package" https.lock package.json \
+  lock '$' '  evil@https://evil.example/x.tgz: {}'
+run 1 "file: key for another package" https.lock package.json \
+  lock '$' "  'evil@file:../evil': {}"
+run 1 "git key for another package" https.lock package.json \
+  lock '$' "  'evil@git+https://evil.example/x.git#$C': {}"
+run 1 "alias importer entry on a tarball" https.lock package.json \
+  lock $'    dependencies:\n' $'    dependencies:\n      alias:\n        specifier: https://evil.example/a.tgz\n        version: https://evil.example/a.tgz\n'
+run 1 "flow-style importer entry" https.lock package.json \
+  lock $'      ssh2:\n        specifier: 1.17.0\n        version: 1.17.0' '      ssh2: {specifier: 1.17.0, version: 1.17.0}'
+run 1 "second @usc/api-client entry under packages:" https.lock package.json \
+  lock $'packages:\n\n' $'packages:\n\n'"  '@usc/api-client@$S#$C$P':"$'\n'"    resolution: {commit: $C, path: /clients/typescript, $SREPO, type: git}"$'\n\n'
+run 1 "unexpected field in the importer entry" https.lock package.json \
+  lock "version: $H#$C$P"$'\n' "version: $H#$C$P"$'\n        optional: true\n'
+run 1 "peer suffix on the contracts key" https.lock package.json \
+  lock "$P':"$'\n    resolution' "$P(zod@3.0.0)':"$'\n    resolution' lock "$P': {}" "$P(zod@3.0.0)': {}"
+run 1 "YAML anchor and alias" https.lock package.json \
+  lock $'      ssh2:\n' $'      ssh2: &x\n'
+run 1 "CRLF lockfile" https.lock package.json lock CRLF ''
+run 1 "CRLF package.json" https.lock package.json pkg CRLF ''
+run 1 "byte order mark" https.lock package.json lock 'lockfileVersion' $'\xef\xbb\xbflockfileVersion'
+run 0 "registry key with nested peers" https.lock package.json \
+  lock '$' "  'a@1.0.0(b@2.0.0(c@3.0.0))(@d/e@1.0.0-rc.1)': {}"
+run 0 "escaped quote in a package.json script" https.lock package.json \
+  pkg '"git config core.hooksPath .githooks"' '"node -e \"process.exit(0)\""'
+
+# --- repository root: pnpmfile and workspace settings -----------------------
+EXTRA_FILE=.pnpmfile.cjs EXTRA_CONTENT='module.exports = {}' \
+  run 1 ".pnpmfile.cjs present" https.lock package.json
+EXTRA_FILE=.npmrc EXTRA_CONTENT='pnpmfile = hooks.cjs' \
+  run 1 "pnpmfile setting in .npmrc" https.lock package.json
+EXTRA_FILE=pnpm-workspace.yaml EXTRA_CONTENT=$'overrides:\n  ssh2: 1.17.0' \
+  run 1 "pnpm-workspace.yaml with overrides" https.lock package.json
+EXTRA_FILE=pnpm-workspace.yaml EXTRA_CONTENT=$'catalog:\n  ssh2: 1.17.0' \
+  run 1 "pnpm-workspace.yaml with a catalog" https.lock package.json
+EXTRA_FILE=pnpm-workspace.yaml EXTRA_CONTENT=$'onlyBuiltDependencies:\n  - esbuild' \
+  run 0 "pnpm-workspace.yaml with an unrelated setting" https.lock package.json
+EXTRA_FILE=.npmrc EXTRA_CONTENT='engine-strict=true' \
+  run 0 ".npmrc without a pnpmfile setting" https.lock package.json
+
 # --- never print a token ----------------------------------------------------
 TOKEN="gh""s_$(printf 'A%.0s' {1..36})"
 run 1 "token in an offending URL is redacted" https.lock package.json \
@@ -162,8 +213,14 @@ run 1 "bare userinfo credential is redacted" https.lock package.json \
 unset TOKEN
 
 # --- usage ------------------------------------------------------------------
-rc=0
-"$guard" "$fx/https.lock" >/dev/null 2>&1 || rc=$?
-if [[ "$rc" -eq 2 ]]; then echo "ok   exit=2  usage error"; else echo "FAIL usage error (exit $rc, want 2)"; fail=1; fi
+usage() {  # usage <label> <args...>: the guard must exit 2
+  local label=$1 rc=0
+  shift
+  "$guard" "$@" >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" -eq 2 ]]; then echo "ok   exit=2  $label"; else echo "FAIL $label (exit $rc, want 2)"; fail=1; fi
+}
+usage "one argument" "$fx/https.lock"
+usage "identical paths" "$fx/https.lock" "$fx/https.lock"
+usage "unreadable path" "$fx/https.lock" "$work/missing.json"
 
 exit "$fail"
