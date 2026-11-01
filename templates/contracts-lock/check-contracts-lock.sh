@@ -60,6 +60,10 @@
 # not, 2 on a usage error. Offending lines are printed with any URL
 # credential redacted.
 set -eu
+# Bytes, not characters: awk regexes, tolower and grep -i behave the same
+# with every awk and runner locale.
+LC_ALL=C
+export LC_ALL
 
 me=check-contracts-lock
 if [ "$#" -ne 2 ]; then
@@ -83,8 +87,16 @@ pkg=$2
 case $lock in /*) ;; *) lock=./$lock ;; esac
 case $pkg in /*) ;; *) pkg=./$pkg ;; esac
 
-# Settings that change what pnpm installs, outside the two files.
 status=0
+# A byte order mark, read as bytes in sh: awk and the locale cannot change it.
+for f in "$1" "$2"; do
+  if [ "$(dd if="$f" bs=3 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')" = efbbbf ]; then
+    echo "$me: $f:1: byte order mark: refused" >&2
+    status=1
+  fi
+done
+
+# Settings that change what pnpm installs, outside the two files.
 root=$(dirname -- "$1")
 for f in .pnpmfile.cjs .pnpmfile.mjs; do
   if [ -e "$root/$f" ]; then
@@ -200,7 +212,6 @@ BEGIN {
 # --- both files -------------------------------------------------------------
 {
   file = (FILENAME == PF) ? PF : LF
-  if (FNR == 1 && substr($0, 1, 3) == "\357\273\277") fail(file, FNR, "byte order mark: refused", "")
   if (sub(/\r$/, "")) { if (!crlf[file]++) fail(file, FNR, "CRLF line endings are not supported", "") }
   t = $0
   if (file == PF) { gsub(/\\\\/, "", t); gsub(/\\"/, "", t) }
