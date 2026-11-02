@@ -46,7 +46,11 @@ The `node.yml` template ignores two semver-major updates in every `npm` ecosyste
 
 ## Generated API clients
 
-`@usc/api-client` and `usc_api_client` are git-tag dependencies on the private `contracts` repository (ADR-013, SoutienScolaireApp/architecture#6). The templates **ignore** them: they are bumped by the contract change procedure (a PR per consumer after a new contracts tag), not by Dependabot. If ADR-013 shows that Dependabot can propose those tag bumps, remove the `ignore` entry; Dependabot then also needs read access to `contracts` (organisation setting "Grant Dependabot access to private repositories").
+`@usc/api-client` and `usc_api_client` are git-tag dependencies on the private `contracts` repository (ADR-013, SoutienScolaireApp/architecture#6). The templates **ignore** them: they are bumped by the contract change procedure (a PR per consumer after a new contracts tag), not by Dependabot. Dependabot still re-resolves `@usc/api-client` on every npm update, reading `contracts` through the organisation setting "Grant Dependabot access to private repositories" (ADR-013 Amendment 1, rule 8).
+
+**Lockfile spelling (ADR-013 Amendment 3).** Inside Dependabot, pnpm records the `@usc/api-client` entry of `pnpm-lock.yaml` in the SSH spelling (`git+ssh://git@github.com/SoutienScolaireApp/contracts.git#<commit>&path:/clients/typescript`, `repo: git@github.com:SoutienScolaireApp/contracts.git`), although the `package.json` specifier is HTTPS and Dependabot fetched over HTTPS. The commit is the same; only the spelling flips. Both spellings are accepted by the shared [contracts lockfile guard](CI.md#the-contracts-lockfile-guard), and CI rewrites both to authenticated HTTPS with SSH disabled. In a consumer that has adopted the guard, such a PR needs **no manual relock**: review the commit of the `contracts` entry, not its URL (a change of spelling with the same commit changes nothing installed).
+
+**HTTPS relock, optional.** It is still valid, and still required in a consumer that has not adopted the guard yet: relock with SSH disabled and no `insteadOf` rule rewriting HTTPS to SSH, with your own HTTPS credential for `contracts`, for example `GIT_SSH_COMMAND=false pnpm install --lockfile-only`, then commit `pnpm-lock.yaml`. Nobody edits the lockfile by hand.
 
 ## pnpm version
 

@@ -335,7 +335,7 @@ jobs:
 
       # shellcheck is preinstalled on ubuntu-latest (CI.md).
       - name: shellcheck
-        run: shellcheck -x .github/scripts/*.sh scripts/*.sh tests/*/*.sh
+        run: shellcheck -x .github/scripts/*.sh scripts/*.sh templates/*/*.sh tests/*/*.sh
 
       # Every tests/<script>/run.sh, so a new script test needs no CI change.
       - name: Script tests

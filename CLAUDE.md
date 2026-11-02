@@ -29,8 +29,9 @@ workflow-templates/                         ci-common, ci-node, ci-flutter, ci-o
 templates/lint/                             yamllint and markdownlint-cli2 configs, hashed lint tool pins
 templates/dependabot/                       common, node, flutter, container, lint
 templates/openapi/.spectral.yaml            Spectral rule set for contracts
+templates/contracts-lock/                   check-contracts-lock.sh, copied unchanged into each pnpm consumer
 rulesets/protect-develop.json               organization ruleset as code; scripts/apply-ruleset.sh applies it
-tests/                                      apply-ruleset, ci-templates (drift), gate-integrity, sops-regex
+tests/                                      apply-ruleset, ci-templates (drift), contracts-lock, gate-integrity, sops-regex
 CI.md  DEPENDABOT.md  CONTRIBUTING.md  SECURITY.md  README.md
 ```
 
