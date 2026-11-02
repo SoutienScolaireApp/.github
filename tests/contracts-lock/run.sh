@@ -272,6 +272,24 @@ raw 1 "packages twice" "$IMP"$'\n'"$GOODPK"$'\npackages:\n  bar@1.0.0:\n    reso
 raw 1 "unknown top-level key" "$IMP"$'\n'"$GOODPK"$'\nextra:\n  x: 1'
 raw 1 "unquoted lockfileVersion" "${IMP/\'9.0\'/9.0}"$'\n'"$GOODPK"
 raw 1 "node@runtime: entry" "$IMP"$'\npackages:\n  node@runtime:24.11.0:\n    resolution: {integrity: sha512-AAAA}\nsnapshots:\n  node@runtime:24.11.0: {}'
+# Fourth security review (pnpm 10.34.6 accepted both): a quoted scalar spread
+# over lines hides a decoy resolution, and a lone CR splits a line.
+INT=sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==
+NUMIMP=$'lockfileVersion: \'9.0\'\n\nimporters:\n\n  .:\n    dependencies:\n      is-number:\n        specifier: 7.0.0\n        version: 7.0.0\n\npackages:\n\n  is-number@7.0.0:\n    hasBin: "true\n    resolution: {integrity: '"$INT"$'}\n    "\n'
+raw 1 "decoy resolution inside a multi-line quoted scalar" \
+  "$NUMIMP"$'    "resolution":\n      tarball: https://127.0.0.1:1/is-number.tgz\n      integrity: '"$INT"$'\n\nsnapshots:\n\n  is-number@7.0.0: {}'
+raw 1 "lone CR splitting a deprecated line" \
+  "$NUMIMP"$'    deprecated: x\r    resolution: {tarball: https://127.0.0.1:1/x.tgz, integrity: '"$INT"$'}\n\nsnapshots:\n\n  is-number@7.0.0: {}'
+raw 1 "lone CR mid-line in the lockfile" "$IMP"$'\npackages:\n  foo@1.0.0:\n    resolution: {integrity: sha512-AAAA}\r    hasBin: true\nsnapshots:\n  foo@1.0.0: {}'
+raw 1 "block scalar value" "${IMP/specifier: 1.0.0/specifier: |}"$'\n'"$GOODPK"
+raw 1 "quoted key not closed on its line" "$IMP"$'\npackages:\n  foo@1.0.0:\n    resolution: {integrity: sha512-AAAA}\n    peerDependencies:\n      \'bar: 1.0.0\nsnapshots:\n  foo@1.0.0: {}'
+raw 1 "quoted packages entry field" "$IMP"$'\npackages:\n  foo@1.0.0:\n    \'resolution\': {integrity: sha512-AAAA}\nsnapshots:\n  foo@1.0.0: {}'
+raw 1 "? field in a packages entry" "$IMP"$'\npackages:\n  foo@1.0.0:\n    resolution: {integrity: sha512-AAAA}\n    ? hasBin\nsnapshots:\n  foo@1.0.0: {}'
+raw 1 "sequence item as a packages entry field" "$IMP"$'\npackages:\n  foo@1.0.0:\n    resolution: {integrity: sha512-AAAA}\n    - x\nsnapshots:\n  foo@1.0.0: {}'
+raw 1 "unknown packages entry field" "$IMP"$'\npackages:\n  foo@1.0.0:\n    resolution: {integrity: sha512-AAAA}\n    fetch: x\nsnapshots:\n  foo@1.0.0: {}'
+raw 1 "unknown snapshots entry field" "$IMP"$'\n'"$GOODPK"$'\n  bar@1.0.0:\n    source: x'
+raw 0 "known fields, quoted deeper keys" "$IMP"$'\npackages:\n  foo@1.0.0:\n    resolution: {integrity: sha512-AAAA}\n    hasBin: true\n    peerDependencies:\n      \'@vitest/browser\': 5.0.5\n    peerDependenciesMeta:\n      \'@vitest/browser\':\n        optional: true\nsnapshots:\n  foo@1.0.0:\n    optional: true\n    dependencies:\n      \'@a/b\': 1.0.0'
+run 1 "lone CR in package.json" https.lock package.json pkg '"private": true,' $'"private": true,\r'
 run 1 "github: dependency in package.json" https.lock package.json pkg '"ssh2": "1.17.0"' '"ssh2": "github:evil/x"'
 run 1 "user/repo dependency in package.json" https.lock package.json pkg '"ssh2": "1.17.0"' '"ssh2": "evil/x"'
 run 1 "workspace: dependency in package.json" https.lock package.json pkg '"ssh2": "1.17.0"' '"ssh2": "workspace:*"'

@@ -46,6 +46,10 @@
 # patchedDependencies, packageExtensions, catalog or @usc text (any case,
 # anywhere), no top-level flow mapping and no `?` key.
 #
+# Every packages/snapshots entry field is an unquoted key from the list pnpm
+# writes; no carriage return anywhere; no quote left open on a line and no
+# block scalar in the lockfile.
+#
 # Canonical layout only: column-0 lines are lockfileVersion and the section
 # lines pnpm writes, each once; flow values only on the one-line resolution,
 # engines, cpu, os and libc fields and as {} on a snapshot key. package.json
@@ -179,6 +183,27 @@ function resolution(s, line, text, n, i, parts, k, v, seen, c) {
   if (seen["type"] != "git") { fail(LF, line, "@usc/api-client resolution.type is not git", text); return }
   nres++; res_commit = seen["commit"]
 }
+# A value that opens a quote it does not close on the same line, or starts a
+# block scalar, spans lines: refused. Returns the reason, or "".
+function multiline(s, t, q, e, c, v, f) {
+  t = s; sub(/^ */, "", t)
+  if (substr(t, 1, 2) == "- ") t = substr(t, 3)
+  q = substr(t, 1, 1)
+  if (q == "\047" || q == "\"") {
+    e = index(substr(t, 2), q)
+    if (e == 0) return "quoted key not closed on its line"
+    t = substr(t, e + 2)
+  } else {
+    c = index(t, ": ")
+    if (c == 0) return ""
+    t = substr(t, c)
+  }
+  if (substr(t, 1, 1) != ":") return ""
+  v = substr(t, 2); sub(/^ /, "", v); f = substr(v, 1, 1)
+  if (f == "|" || f == ">") return "block scalar"
+  if ((f == "\047" || f == "\"") && (length(v) < 2 || substr(v, length(v), 1) != f)) return "quoted value not closed on its line"
+  return ""
+}
 # Ends the registry entry under packages: being read, if any.
 function close_other() {
   if (oline && ores != 1) fail(LF, oline, "registry package needs exactly one resolution: {integrity: sha...}", otext)
@@ -200,6 +225,10 @@ BEGIN {
   # Paths come from the environment: awk -v would interpret backslashes.
   me = ENVIRON["ME"]; PF = ENVIRON["PF"]; LF = ENVIRON["LF"]
   INTEG_RE = "^    resolution: \\{integrity: sha(1|256|384|512)-[A-Za-z0-9+/]+=*\\}$"
+  n = split("resolution engines cpu os libc deprecated hasBin prepare requiresBuild bundledDependencies peerDependencies peerDependenciesMeta version", a, " ")
+  for (i = 1; i <= n; i++) FIELDS["packages" SUBSEP a[i]] = 1
+  n = split("dependencies optionalDependencies transitivePeerDependencies optional id", a, " ")
+  for (i = 1; i <= n; i++) FIELDS["snapshots" SUBSEP a[i]] = 1
   RANGE_RE = "^[\\^~<>=*xX0-9][0-9A-Za-z.^~<>=|*+ -]*$"
   REG_RE = "^(@[A-Za-z0-9._~-]+/)?[A-Za-z0-9._~-]+@[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?(\\([A-Za-z0-9@/._~+()-]*\\))?$"
   HTTPS_REPO = "https://github.com/SoutienScolaireApp/contracts.git"
@@ -212,7 +241,9 @@ BEGIN {
 # --- both files -------------------------------------------------------------
 {
   file = (FILENAME == PF) ? PF : LF
-  if (sub(/\r$/, "")) { if (!crlf[file]++) fail(file, FNR, "CRLF line endings are not supported", "") }
+  # Any carriage return: a lone CR mid-line is a line break for js-yaml.
+  if (index($0, "\r") && !cr[file]++) fail(file, FNR, "carriage return (CR or CRLF) is not supported", "")
+  gsub(/\r/, "")
   t = $0
   if (file == PF) { gsub(/\\\\/, "", t); gsub(/\\"/, "", t) }
   if (index(t, "\\")) fail(file, FNR, "backslash escape: refused (an escaped key could hide @usc/api-client)", $0)
@@ -268,6 +299,15 @@ FILENAME == PF {
   if ($0 ~ /(^|[:-] )[&*][A-Za-z0-9_]/ || $0 ~ /^ *<<:/) fail(LF, FNR, "YAML anchor, alias or merge key: refused", $0)
   # pnpm indents by two: any other step could move a line out of its entry.
   if (ind % 2) { fail(LF, FNR, "odd indentation: refused", $0); next }
+  why = multiline($0)
+  if (why != "") { fail(LF, FNR, why ": refused", $0); next }
+  # Entry fields: the unquoted keys pnpm writes, nothing else.
+  if ((sec == "packages" || sec == "snapshots") && ind == 4) {
+    k = $0
+    if (!sub(/^    /, "", k) || k !~ /^[A-Za-z]+:( |$)/) { fail(LF, FNR, sec " entry field is not an unquoted key", $0); next }
+    sub(/:.*/, "", k)
+    if (!((sec SUBSEP k) in FIELDS)) { fail(LF, FNR, "unexpected " sec " entry field " k, $0); next }
+  }
   # deprecated: is free text, never a source: no URL scan, no flow rule.
   if (sec == "packages" && ind == 4 && $0 ~ /^    deprecated: /) next
   # Flow values only where pnpm writes them: one-line resolution, engines,
