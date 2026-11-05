@@ -170,7 +170,6 @@ pub 1 "another case" GIT@GitHub.com:SoutienScolaireApp/contracts.git "$url"
 
 mkdir "$work/repo"
 git -C "$work/repo" init -q
-absent() { ! grep -qF -- "$1" "$2"; }
 tok() {  # tok <want exit> <label> <file content>
   local want="$1" label="$2" rc=0
   printf '%s\n' "$3" >"$work/repo/f"
@@ -178,8 +177,7 @@ tok() {  # tok <want exit> <label> <file content>
   (cd "$work/repo" && bash "$work/token-guard.sh") >"$work/out" 2>&1 || rc=$?
   if [[ "$rc" -eq "$want" ]]; then ok "token guard: $label"; else ko "token guard: $label (exit $rc, want $want)"; cat "$work/out"; fi
   if [[ "$want" -eq 1 ]]; then
-    check "token guard: $label, not printed" "token guard: $label, the token is in the output" \
-      absent "$3" "$work/out"
+    if grep -qF -- "$3" "$work/out"; then ko "token guard: $label, the token is in the output"; else ok "token guard: $label, not printed"; fi
   fi
 }
 # Built here so no scanner reads this script as holding a token.
