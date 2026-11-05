@@ -128,14 +128,15 @@ To change the checker: change it and its tests here (`tests/gate-integrity/run.s
 
 ### Drift of the copies
 
-The `gate-drift` job of each `ci.yml` compares both files, by git blob hash, with `develop` of public `SoutienScolaireApp/.github`. It uses no token: it reads a public repository with an anonymous `git fetch`, and only compares the files, never runs them.
+The `gate-drift` job of each `ci.yml` compares both files, by file mode and git blob hash (a lost executable bit is drift), with `develop` of public `SoutienScolaireApp/.github`. It uses no token: it reads a public repository with an anonymous `git fetch`, and only compares the files, never runs them.
 
 | The PR (merge commit against its first parent) | Result |
 |---|---|
 | Touches either file, and either differs from the source | fails, the PR must copy both unchanged |
 | Touches neither, and either differs | `::warning::`, the job passes: a merge in this repository must not turn the others red before their copies land |
 | Both files match | passes |
-| The source cannot be read within 60 seconds, or lacks a file | `::warning::`, the job passes, drift not checked: an outage must not block every PR. Re-run the job to check |
+| Touches either file, and the source cannot be read within 60 seconds or lacks a file | fails, re-run the job: a PR that touches these files must not pass unseen |
+| Touches neither, and the source cannot be read within 60 seconds or lacks a file | `::warning::`, the job passes, drift not checked: an outage must not block every PR. Re-run the job to check |
 
 - **In this repository** the job passes with a `::notice::` and fetches nothing: it is the source, a PR here legitimately differs from `develop`, and comparing `develop` with itself proves nothing. The job stays in `ci.yml` so that the common jobs stay identical. Here, `tests/gate-integrity/run.sh` checks the workflow against its template.
 - **Fork PRs** skip the job with the same guard as the other common jobs: it never fails one on its own, and `Quality Gate` stays red on a fork PR as it already does.

@@ -298,8 +298,9 @@ jobs:
           persist-credentials: false
 
       # Rules and reasons: CI.md, "Drift of the copies". No token: the source
-      # is public. Files are compared by blob hash, never run. An unreadable
-      # source warns: a GitHub outage must not block every PR.
+      # is public. Files are compared by mode and blob hash, never run. An
+      # unreadable source warns, so an outage does not block every PR, but
+      # fails a PR that touches the files: that one must not pass unseen.
       - name: Compare the Gate integrity copies with the public source
         env:
           SOURCE_REPO: SoutienScolaireApp/.github
@@ -313,19 +314,23 @@ jobs:
 
           files=(.github/workflows/gate-integrity.yml .github/scripts/gate-integrity.sh)
           touched=$(git diff --name-only HEAD^1 HEAD -- "${files[@]}")
-          unread="Could not read ${SOURCE_REPO} develop: drift not checked, re-run this job to check it."
-          if ! timeout 60 git fetch --quiet --no-tags --depth=1 "${GITHUB_SERVER_URL}/${SOURCE_REPO}.git" develop; then
-            echo "::warning::$unread"
+          unreadable() {
+            if [[ -n "$touched" ]]; then
+              echo "::error::This PR changes the Gate integrity files and ${SOURCE_REPO} develop could not be read ($1): re-run this job."
+              exit 1
+            fi
+            echo "::warning::Could not read ${SOURCE_REPO} develop ($1): drift not checked, re-run this job to check it."
             exit 0
+          }
+          if ! timeout 60 git fetch --quiet --no-tags --depth=1 "${GITHUB_SERVER_URL}/${SOURCE_REPO}.git" develop; then
+            unreadable "fetch failed"
           fi
 
           drift=()
           for f in "${files[@]}"; do
-            if ! public=$(git rev-parse --quiet --verify "FETCH_HEAD:$f"); then
-              echo "::warning::$unread ($f is missing there.)"
-              exit 0
-            fi
-            [[ "$(git rev-parse --quiet --verify "HEAD:$f" || true)" == "$public" ]] || drift+=("$f")
+            public=$(git ls-tree FETCH_HEAD -- "$f")
+            [[ -n "$public" ]] || unreadable "$f is missing there"
+            [[ "$(git ls-tree HEAD -- "$f")" == "$public" ]] || drift+=("$f")
           done
 
           if [[ "${#drift[@]}" -eq 0 ]]; then

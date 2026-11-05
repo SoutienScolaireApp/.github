@@ -52,19 +52,25 @@ put() {  # put <dir> <gate-integrity.yml content> <gate-integrity.sh content>; "
 commit() { git -C "$1" add -A && git -C "$1" commit -qm "$2"; }
 
 put "$work/src" public-yml public-sh
+chmod +x "$work/src/$sh"
 git -C "$work/src" init -q -b develop
 commit "$work/src" source
 git clone -q --bare "$work/src" "$work/source.git"
 
+chmod_checker() { [[ ! -f "$work/repo/$sh" ]] || chmod "$1" "$work/repo/$sh"; }
+
 # The repository of the PR: base files, then a PR that lands the head files and
-# a marker, merged into a develop that moved on. Depth 2 as in the job.
-pull_request() {  # <base yml> <base sh> <head yml> <head sh>
+# a marker, merged into a develop that moved on. Depth 2 as in the job. The
+# checker is executable, as in the source, unless a chmod argument says otherwise.
+pull_request() {  # <base yml> <base sh> <head yml> <head sh> [base chmod] [head chmod]
   rm -rf "$work/repo" "$work/pr"
   put "$work/repo" "$1" "$2"
+  chmod_checker "${5:-+x}"
   git -C "$work/repo" init -q -b develop
   commit "$work/repo" base
   git -C "$work/repo" switch -qc pr
   put "$work/repo" "$3" "$4"
+  chmod_checker "${6:-${5:-+x}}"
   echo marker >"$work/repo/marker"
   commit "$work/repo" pr
   git -C "$work/repo" switch -q develop
@@ -101,9 +107,12 @@ verdict 0 none "not touched and same passes"
 
 pull_request old-yml old-sh old-yml old-sh
 verdict 0 warning "fetch failure, not touched, warns" missing
-pull_request old-yml public-sh weak-yml public-sh
-verdict 0 warning "fetch failure, touched, warns" missing
 if grep -q 'Could not read' "$work/out"; then ok "the warning names the failed read"; else ko "the warning names the failed read"; fi
+pull_request old-yml public-sh weak-yml public-sh
+verdict 1 error "fetch failure, touched, fails" missing
+if grep -q 'could not be read' "$work/out"; then ok "the error names the failed read"; else ko "the error names the failed read"; fi
+pull_request old-yml old-sh public-yml public-sh
+verdict 1 error "fetch failure, touched even with the right copies, fails" missing
 
 pull_request old-yml old-sh public-yml old-sh
 verdict 1 error "one file touched, the other still different, fails"
@@ -114,12 +123,21 @@ verdict 1 error "a file removed by the PR fails"
 pull_request public-yml - public-yml -
 verdict 0 warning "a file missing from the repository, not touched, warns"
 
+pull_request public-yml public-sh public-yml public-sh +x -x
+verdict 1 error "the executable bit lost by the PR fails"
+pull_request public-yml public-sh public-yml public-sh -x
+verdict 0 warning "the executable bit already missing, not touched, warns"
+pull_request public-yml public-sh public-yml public-sh -x +x
+verdict 0 none "the executable bit restored by the PR passes"
+
 # A file missing from the source is an unreadable source, never a pass.
 put "$work/src" - public-sh
 commit "$work/src" "no workflow"
 git -C "$work/src" push -q "$work/source.git" develop
 pull_request - public-sh - public-sh
-verdict 0 warning "a file missing from the source warns"
+verdict 0 warning "a file missing from the source, not touched, warns"
+pull_request - old-sh - public-sh
+verdict 1 error "a file missing from the source, touched, fails"
 
 # The source repository is its own reference: no fetch, no verdict.
 pull_request old-yml old-sh weak-yml old-sh
