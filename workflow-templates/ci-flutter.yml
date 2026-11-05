@@ -293,6 +293,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.event.pull_request.head.repo.full_name == github.repository
+    # ADR-013 Amendment 3, on every job that installs dependencies: any SSH
+    # attempt fails closed (a missing rewrite cannot fall back to SSH), and a
+    # URL that no rewrite matches fails fast instead of waiting for a prompt.
+    env:
+      GIT_SSH_COMMAND: "false"
+      GIT_TERMINAL_PROMPT: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -320,7 +326,69 @@ jobs:
             exit 1
           fi
 
+      # TODO(scaffold): consumers only. usc_api_client is a git dependency on the
+      # private SoutienScolaireApp/contracts (ADR-013 rules 6 and 9, Amendments 1
+      # and 3). A repository that does not consume it deletes the steps from here
+      # to the token, and the env: of the install step (CI.md, "Reading the
+      # private contracts repository"). The guards run before any token exists.
+      - name: No installation token in tracked files
+        run: |
+          set -euo pipefail
+          # Only file:line is printed, never the matching text (a leaked token).
+          if git grep -nIE 'x-access-token:[A-Za-z0-9_]|ghs_[A-Za-z0-9]{20,}' | cut -d: -f1,2; then
+            echo "::error::A tracked file holds a GitHub installation token: remove it and have the App key rotated (ADR-013)."
+            exit 1
+          fi
+
+      # The manifests name contracts by its HTTPS URL only: unlike pnpm, pub has
+      # no SSH form to accept (ADR-013 Amendment 3, Dart consumers unchanged).
+      - name: Contracts is referenced by its HTTPS URL
+        run: |
+          set -euo pipefail
+          if grep -niE 'git@github\.com|ssh://|git\+ssh' pubspec.yaml pubspec.lock; then
+            echo "::error::pubspec.yaml and pubspec.lock must reference SoutienScolaireApp/contracts by https://github.com/SoutienScolaireApp/contracts.git, never by SSH."
+            exit 1
+          fi
+
+      # The private key never enters a run step: only whether it is set.
+      - name: Require the SchoolEngine CI App credentials
+        env:
+          APP_CLIENT_ID: ${{ vars.SCHOOLENGINE_CI_APP_CLIENT_ID }}
+          HAS_PRIVATE_KEY: ${{ secrets.SCHOOLENGINE_CI_APP_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          status=0
+          if [[ -z "${APP_CLIENT_ID}" ]]; then
+            echo "::error::The organisation variable SCHOOLENGINE_CI_APP_CLIENT_ID is empty or not shared with this repository: usc_api_client (SoutienScolaireApp/contracts) cannot be fetched. See ADR-013 rule 9."
+            status=1
+          fi
+          if [[ "${HAS_PRIVATE_KEY}" != 'true' ]]; then
+            echo "::error::The organisation secret SCHOOLENGINE_CI_APP_PRIVATE_KEY is empty or not shared with this run (a Dependabot PR needs the Dependabot secret of the same name). See ADR-013 rule 9."
+            status=1
+          fi
+          exit "$status"
+
+      # Short-lived token (one hour at most), contents: read on contracts only,
+      # revoked by the action's post step at job end.
+      - name: Mint a read-only token for SoutienScolaireApp/contracts
+        id: contracts-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # actions/create-github-app-token@v3.3.0
+        with:
+          client-id: ${{ vars.SCHOOLENGINE_CI_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SCHOOLENGINE_CI_APP_PRIVATE_KEY }}
+          owner: SoutienScolaireApp
+          repositories: contracts
+          permission-contents: read
+
+      # The rewrite lives only in the env of this step (never git config
+      # --global, never a file); the action masks the token, and the pub cache
+      # keeps the plain HTTPS URL, so later steps never fetch contracts again.
+      # One value, not the two of ci-node: the guard above refuses the SSH form.
       - name: Install dependencies (enforced lockfile)
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ steps.contracts-token.outputs.token }}@github.com/SoutienScolaireApp/contracts.git.insteadOf
+          GIT_CONFIG_VALUE_0: https://github.com/SoutienScolaireApp/contracts.git
         run: flutter pub get --enforce-lockfile
 
       - name: Format
