@@ -1,11 +1,12 @@
 {
   "name": "lint-tools",
   "private": true,
-  "description": "markdownlint-cli2 for the YAML and Markdown lint job, installed with npm ci from package-lock.json (CI.md). overrides: re2js 2.8.7 fixes GHSA-gg6h-894w-4m9c (markdownlint 0.42.0 pins 2.8.6); remove it once markdownlint depends on a fixed re2js.",
+  "description": "markdownlint-cli2 for the YAML and Markdown lint job, installed with npm ci from package-lock.json (CI.md). overrides: re2js 2.8.7 fixes GHSA-gg6h-894w-4m9c (markdownlint 0.42.0 pins 2.8.6); remove it once markdownlint depends on a fixed re2js. katex 0.18.2 fixes GHSA-238p-pmpm-9mq7 (micromark-extension-math 3.1.0 declares ^0.16.0, so this override crosses its range); remove it once micromark-extension-math allows a fixed katex.",
   "devDependencies": {
     "markdownlint-cli2": "0.24.0"
   },
   "overrides": {
-    "re2js": "2.8.7"
+    "re2js": "2.8.7",
+    "katex": "0.18.2"
   }
 }
