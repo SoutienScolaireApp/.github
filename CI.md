@@ -33,6 +33,7 @@ Placeholders that a scaffold ticket must fill are marked `TODO(scaffold)` in the
 
 1. In the repository, open **Actions > New workflow**: the templates are listed in the section of workflows created by SoutienScolaireApp. If they are not shown, copy the file by hand: `workflow-templates/ci-<variant>.yml` to `.github/workflows/ci.yml`.
 2. Copy `templates/lint/.yamllint.yml` and `templates/lint/.markdownlint-cli2.yaml` to the repository root (and, for `contracts`, `templates/openapi/.spectral.yaml`), and `templates/lint/requirements.txt`, `package.json` and `package-lock.json` to `.github/lint/`. Append `templates/dependabot/lint.yml` to `.github/dependabot.yml`, and copy `workflow-templates/gitleaks-history.yml` to `.github/workflows/`. The lint jobs refuse to run without these files.
+   For `ci-ansible`, copy `templates/ansible/requirements.txt` to `.github/ansible/` and append `templates/dependabot/ansible.yml` to `.github/dependabot.yml`. The `ansible` job refuses to run without the file.
    For a pnpm repository, pin pnpm in the `packageManager` field of `package.json` to a major that Dependabot supports (GitHub documents pnpm v7 to v10; `pnpm@10.34.6` on 2026-10-15).
    For a pnpm repository, also define the scripts the `node` job calls (`format:check` = `prettier --check .`, `lint`, `typecheck`, `test:coverage`, `build`) and keep YAML and Markdown out of Prettier (see [Formatting](#formatting)).
 3. Fill the `TODO(scaffold)` placeholders, open the pull request, and check that every job, then `Quality Gate`, is green.
