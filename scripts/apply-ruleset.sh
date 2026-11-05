@@ -71,7 +71,7 @@ fi
 # Team and User need a real id (a positive integer: a placeholder such as 0,
 # "0", "" or a negative value is refused, even with --allow-bypass, since the
 # API may resolve it to an actor nobody chose); OrganizationAdmin ignores the
-# id (GitHub returns 1); DeployKey takes null. Any other type is refused.
+# id (GitHub now returns null); DeployKey takes null. Any other type is refused.
 invalid="$(jq -r '[.bypass_actors[]? | select(
     if (.actor_type | IN("Integration", "RepositoryRole", "Team", "User")) then
       (.actor_id | (type == "number" and . > 0 and . == floor)) | not

@@ -63,7 +63,7 @@ ruleset() { jq ".bypass_actors = [] | $1" "$root/rulesets/protect-develop.json" 
 repo_ruleset() { jq "$1" "$work/live-repo.json" | jq 'del(.id, .source_type)' >"$work/$2"; echo "$work/$2"; }
 
 echo "== The committed rulesets"
-break_glass='[{"actor_id":1,"actor_type":"OrganizationAdmin","bypass_mode":"pull_request"}]'
+break_glass='[{"actor_id":null,"actor_type":"OrganizationAdmin","bypass_mode":"pull_request"}]'
 if [[ "$(jq -c '.bypass_actors' "$root/rulesets/protect-develop.json")" == "$break_glass" ]]; then
   echo "ok   protect-develop.json has only the break-glass bypass (organisation owners, through a PR)"
 else
@@ -115,6 +115,7 @@ bypass_case 1 "User with a string actor_id refused" '{"actor_id": "42", "actor_t
 bypass_case 1 "DeployKey with an actor_id refused (null expected)" '{"actor_id": 3, "actor_type": "DeployKey", "bypass_mode": "always"}'
 bypass_case 1 "unknown actor type refused" '{"actor_id": 3, "actor_type": "Robot", "bypass_mode": "always"}'
 bypass_case 0 "DeployKey with actor_id null accepted" '{"actor_id": null, "actor_type": "DeployKey", "bypass_mode": "always"}'
+bypass_case 0 "OrganizationAdmin with actor_id null (as the API returns it) accepted" '{"actor_id": null, "actor_type": "OrganizationAdmin", "bypass_mode": "always"}'
 bypass_case 0 "OrganizationAdmin (actor_id 1, ignored by the API) accepted" '{"actor_id": 1, "actor_type": "OrganizationAdmin", "bypass_mode": "always"}'
 bypass_case 0 "Team with a positive integer id accepted" '{"actor_id": 7, "actor_type": "Team", "bypass_mode": "pull_request"}'
 repo_placeholder=$(repo_ruleset '.bypass_actors = [{"actor_id": 0, "actor_type": "Integration", "bypass_mode": "always"}]' repo-placeholder.json)
