@@ -13,7 +13,8 @@
 # key, a PUT would keep the live bypass list and the file would no longer
 # describe the ruleset. A file that declares bypass actors is refused unless
 # --allow-bypass is given; the actors are printed in every case. A bypass
-# actor without a valid actor_id for its type is always refused.
+# actor without a valid actor_id for its type is always refused, and a ruleset
+# named protect-develop accepts only the break-glass, even with --allow-bypass.
 # Requires gh (authenticated as an organisation owner or repository admin) and jq.
 set -euo pipefail
 
@@ -71,7 +72,7 @@ fi
 # Team and User need a real id (a positive integer: a placeholder such as 0,
 # "0", "" or a negative value is refused, even with --allow-bypass, since the
 # API may resolve it to an actor nobody chose); OrganizationAdmin ignores the
-# id (GitHub now returns null); DeployKey takes null. Any other type is refused.
+# id (GitHub returned null on 2026-11-05); DeployKey takes null. Any other type is refused.
 invalid="$(jq -r '[.bypass_actors[]? | select(
     if (.actor_type | IN("Integration", "RepositoryRole", "Team", "User")) then
       (.actor_id | (type == "number" and . > 0 and . == floor)) | not
@@ -92,6 +93,13 @@ if [[ "$bypass_count" != "0" ]]; then
     echo "Refused: bypass actors need --allow-bypass (protect-develop declares only the OrganizationAdmin break-glass)." >&2
     exit 1
   fi
+fi
+
+# protect-develop has exactly one bypass actor, the break-glass (rulesets/README.md).
+if jq -e '.name == "protect-develop"' "$file" >/dev/null \
+  && ! jq -e '.bypass_actors | length == 1 and (.[0] | IN({actor_id: (null, 1), actor_type: "OrganizationAdmin", bypass_mode: "pull_request"}))' "$file" >/dev/null; then
+  echo "Refused: $file must declare exactly one bypass actor for protect-develop: OrganizationAdmin (actor_id null or 1), bypass_mode pull_request." >&2
+  exit 1
 fi
 
 name="$(jq -r '.name' "$file")"
