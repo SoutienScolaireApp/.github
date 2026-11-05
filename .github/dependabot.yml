@@ -92,3 +92,24 @@ updates:
         applies-to: version-updates
         patterns:
           - "*"
+
+  # Ansible toolchain of the ci-ansible template (hashed requirements.txt).
+  - package-ecosystem: "pip"
+    directory: "/templates/ansible"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Brussels"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "tech-debt"
+    groups:
+      ansible-tools-pip:
+        applies-to: version-updates
+        patterns:
+          - "*"

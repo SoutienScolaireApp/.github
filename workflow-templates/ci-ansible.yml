@@ -38,8 +38,6 @@ env:
   OSV_SCANNER_SHA256: '160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b'
   PYTHON_VERSION: '3.13'
   NODE_VERSION: '24.21.0'
-  ANSIBLE_CORE_VERSION: '2.21.4'
-  ANSIBLE_LINT_VERSION: '26.9.0'
   # TODO(scaffold): inventory used by --syntax-check.
   ANSIBLE_INVENTORY: 'inventories/staging/hosts.yml'
   # Tracked files that must be sops-encrypted: a basename with a prefix
@@ -306,15 +304,23 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      # Every package, transitive ones included, is pinned with its hash in
+      # .github/ansible/requirements.txt (copy of templates/ansible/). --no-deps
+      # resolves nothing, so `pip check` catches pins that no longer fit.
+      # Bumped by Dependabot (pip).
       - name: Install the pinned Ansible toolchain
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check \
-            "ansible-core==${ANSIBLE_CORE_VERSION}" "ansible-lint==${ANSIBLE_LINT_VERSION}"
+            --require-hashes --only-binary :all: --no-deps \
+            -r .github/ansible/requirements.txt
+          python -m pip check --disable-pip-version-check
           ansible --version
           ansible-lint --version
 
       # TODO(scaffold): pin every collection version in requirements.yml.
+      # Galaxy offers version pins here, not hashes, and no signature is
+      # verified: a collection version is trusted as Galaxy serves it (CI.md).
       - name: Install the collections
         run: |
           if [[ -f requirements.yml ]]; then
@@ -357,18 +363,27 @@ jobs:
           persist-credentials: false
 
       # Every tracked file named <name>.sops.yml / .yaml / .json must
-      # carry sops metadata with a MAC: a decrypted copy committed by mistake
+      # carry sops metadata with a MAC, and every value outside `sops` must be
+      # ENC[...]: a decrypted or partly decrypted copy committed by mistake
       # fails here. Decryption keys never reach CI.
       - name: Check that sops files are encrypted
         run: |
           set -euo pipefail
           status=0
           count=0
+          command -v yq >/dev/null || { echo "::error::yq is required to read the sops files."; exit 1; }
+          # Slurped: one array item per document. sops writes every value as
+          # ENC[...] except empty strings and nulls, which hold no secret.
+          filter='length > 0 and all(.[];
+            (.sops.mac | type == "string" and startswith("ENC["))
+            and all(del(.sops) | .. | scalars | select(. != null and . != "");
+              type == "string" and startswith("ENC[")))'
+          # stderr is dropped: jq quotes the value it fails on, a clear secret here.
           is_encrypted() {
             case "$1" in
-              *.json) jq -e '.sops.mac | strings | startswith("ENC[")' "$1" >/dev/null 2>&1 ;;
-              *) grep -q '^sops:' "$1" && grep -Eq '^[[:space:]]+mac: ENC\[' "$1" ;;
-            esac
+              *.json) jq -es "$filter" "$1" ;;
+              *) yq -o=json '.' "$1" | jq -es "$filter" ;;
+            esac >/dev/null 2>&1
           }
           # NUL separated and unquoted: a non-ASCII name (café.sops.yml) is
           # matched and opened as is, never skipped.

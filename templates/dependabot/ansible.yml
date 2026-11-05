@@ -1,0 +1,28 @@
+# SchoolEngine Dependabot template: ansible
+# Entry to append to the updates: list of .github/dependabot.yml in the
+# repository that uses ci-ansible: the Ansible toolchain of the `ansible` job,
+# pinned with its hashes in .github/ansible/ (copied from templates/ansible/).
+# Rules: DEPENDABOT.md in SoutienScolaireApp/.github.
+version: 2
+
+updates:
+  - package-ecosystem: "pip"
+    directory: "/.github/ansible"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Brussels"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "tech-debt"
+    # One PR: the pins are installed with --no-deps, so they move together.
+    groups:
+      ansible-tools-pip:
+        applies-to: version-updates
+        patterns:
+          - "*"

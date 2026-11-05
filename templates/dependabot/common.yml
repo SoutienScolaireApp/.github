@@ -4,10 +4,13 @@
 version: 2
 
 updates:
-  # Actions pinned by SHA in .github/workflows (every repository).
+  # Actions pinned by SHA in .github/workflows (every repository) and in the
+  # composite actions of .github/actions/* ("/" alone never scans those).
   # Dependabot updates the SHA and its version comment together.
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/*"
     schedule:
       interval: "weekly"
       day: "monday"

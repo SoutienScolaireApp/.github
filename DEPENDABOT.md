@@ -11,6 +11,7 @@ SchoolEngine repositories keep their dependencies up to date with Dependabot ver
 | [`flutter.yml`](templates/dependabot/flutter.yml) | `mobile-app` | `github-actions`, `pub` |
 | [`container.yml`](templates/dependabot/container.yml) | Entry to append in a repository that builds an OCI image (`backend`, `infrastructure` if it holds image definitions) | `docker` |
 | [`lint.yml`](templates/dependabot/lint.yml) | Entries to append in **every** repository: the lint tools of `.github/lint/` (CI.md) | `pip`, `npm` |
+| [`ansible.yml`](templates/dependabot/ansible.yml) | Entry to append in the repository that uses `ci-ansible` (`infrastructure`): the toolchain of `.github/ansible/` (CI.md) | `pip` |
 
 ## Using a template
 
@@ -19,6 +20,8 @@ SchoolEngine repositories keep their dependencies up to date with Dependabot ver
 3. A repository that builds an image names its image file `Containerfile` (Podman's name, read by Dependabot's `docker` ecosystem like `Dockerfile`) and appends the entry of `container.yml` to its `updates:` list.
 
 Keep the shared settings below when adapting a template; a different `directory` (for example a workspace package) is the only expected change.
+
+The `github-actions` entry of `common.yml`, `node.yml` and `flutter.yml` lists `directories: ["/", "/.github/actions/*"]`: `/` covers `.github/workflows` and a root `action.yml` only, so the pins inside composite actions need the glob. The glob belongs only to `directories`, not to `directory`. A repository without composite actions keeps it unchanged: a glob that matches nothing adds no directory, and `/` is still scanned.
 
 ## Shared settings
 
@@ -29,11 +32,24 @@ Keep the shared settings below when adapting a template; a different `directory`
 - **Commit messages and PR titles** start with `chore(deps):` (or `chore(deps-dev):` for development dependencies), which passes the Conventional Commits check of the `Quality Gate` (see [CI.md](CI.md)).
 - **Label** `tech-debt`. The label must exist in the repository, otherwise Dependabot opens the PR without it.
 
+## A fresh manual pin blocks npm updates during the cooldown
+
+In a pnpm repository, Dependabot turns `cooldown: default-days: 7` into `--config.minimum-release-age=10080` on every pnpm command, including the final `pnpm install --lockfile-only`. That install re-checks the direct dependencies of `package.json`, not only the package being updated. So a manual bump that pins a direct dependency published less than 7 days ago fails every npm version update of the repository, until that version is 7 days old:
+
+```text
+ERR_PNPM_NO_MATURE_MATCHING_VERSION  Version 12.3.2 (released 5 days ago) of @nestjs/testing does not meet the minimumReleaseAge constraint
+Handled error whilst updating zod: update_not_possible
+```
+
+The package named in the error is the fresh pin, not the one being updated, which is why every candidate of the run ends in `update_not_possible` (seen in SoutienScolaireApp/backend#63, after a manual security bump). The `minimum-release-age` of the repository `.npmrc` is not the cause: the value comes from the cooldown. Security updates run without this flag.
+
+After a manual bump to a fresh release this failure is expected and needs no fix: note the date the release turns 7 days old, then let the next Monday run open the PRs, or start "Check for updates" from Insights > Dependency graph > Dependabot. If that run still fails, read its log for another blocker. A pnpm `minimumReleaseAgeExclude` entry for the bumped package is not adopted: nothing here shows that Dependabot honours it.
+
 ## Reviewing a Dependabot PR
 
 A Dependabot PR goes through the same `Quality Gate` as any other and is merged the same way: squash, with Céline's approval. It is exempt from the `Closes #n` check only, since it has no issue. A red gate on a Dependabot PR is fixed in that PR or in a linked ticket, never bypassed. Since `develop` requires branches to be up to date before merge, a Dependabot PR left behind `develop` is rebased by Dependabot itself: comment `@dependabot rebase` (it also rebases on its own when the PR conflicts). Never use Update branch or push to it: once someone else pushes, Dependabot stops updating that PR.
 
-Tool versions downloaded inside CI steps (gitleaks, osv-scanner, actionlint, oasdiff, the Flutter SDK, Node.js) are invisible to Dependabot and are bumped by hand in the CI templates (see [CI.md](CI.md)). In this repository, the `github-actions` entry also scans `workflow-templates/`, so the action SHAs of the templates are bumped in the same PR as `.github/workflows/`, and the `pip` and `npm` entries cover both `templates/lint/` and `.github/lint/`.
+Tool versions downloaded inside CI steps (gitleaks, osv-scanner, actionlint, oasdiff, the Flutter SDK, Node.js) are invisible to Dependabot and are bumped by hand in the CI templates (see [CI.md](CI.md)). In this repository, the `github-actions` entry also scans `workflow-templates/`, so the action SHAs of the templates are bumped in the same PR as `.github/workflows/`, the `pip` and `npm` entries cover both `templates/lint/` and `.github/lint/`, and a `pip` entry covers `templates/ansible/`.
 
 ## Ignored majors
 
