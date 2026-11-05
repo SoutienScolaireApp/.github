@@ -27,6 +27,8 @@ cat >"$work/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
 echo "gh $*" >>"$GH_STUB_LOG"
+# Stands for a file changed after its validation: every call comes after it.
+[[ -z "${GH_STUB_CLOBBER:-}" ]] || echo '{"name": "other-ruleset", "enforcement": "disabled"}' >"$GH_STUB_CLOBBER"
 [[ "$1" == "api" ]] || exit 3
 shift
 case "$*" in
@@ -35,27 +37,36 @@ case "$*" in
   "orgs/SoutienScolaireApp/rulesets/3") cat "$GH_STUB_DIR/live-other.json" ;;
   "repos/SoutienScolaireApp/contracts/rulesets?includes_parents=false --paginate") jq -c '[{id, name}]' "$GH_STUB_DIR/live-repo.json" ;;
   "repos/SoutienScolaireApp/contracts/rulesets/2") cat "$GH_STUB_DIR/live-repo.json" ;;
-  -X\ PUT\ *|-X\ POST\ *) echo "write recorded" ;;
+  -X\ PUT\ *|-X\ POST\ *)
+    while [[ "$1" != "--input" ]]; do shift; done
+    cp "$2" "$GH_STUB_DIR/sent.json"
+    echo "write recorded" ;;
   *) echo "stub: unexpected call: gh api $*" >&2; exit 4 ;;
 esac
 STUB
 chmod +x "$work/bin/gh"
+mkdir -p "$work/broken-diff" "$work/watched-mktemp" "$work/tmp"
+printf '#!/usr/bin/env bash\nexit 2\n' >"$work/broken-diff/diff"
+chmod +x "$work/broken-diff/diff"
+# macOS mktemp ignores TMPDIR: a template is the portable way to pick the folder.
+printf '#!/usr/bin/env bash\nexec %s "%s/tmp/tmp.XXXXXX"\n' "$(command -v mktemp)" "$work" >"$work/watched-mktemp/mktemp"
+chmod +x "$work/watched-mktemp/mktemp"
 export PATH="$work/bin:$PATH" GH_STUB_DIR="$work" GH_STUB_LOG="$work/gh.log"
 
 failures=0
-# expect <exit> <label> <expected write or "-" for none> -- <args...>
+# expect <exit> <label> <expected write or "-" for none> <"--" or a text the output must hold> <args...>
 expect() {
-  local want=$1 label=$2 write=$3 rc=0
+  local want=$1 label=$2 write=$3 message=$4 rc=0
   shift 4
   : >"$GH_STUB_LOG"
   "$script" "$@" >"$work/out.txt" 2>&1 || rc=$?
   local got
   got=$(grep -E '^gh api -X (PUT|POST) ' "$GH_STUB_LOG" | awk '{print $4, $5}' || true)
   [[ -n "$got" ]] || got="-"
-  if [[ "$rc" -eq "$want" && "$got" == "$write" ]]; then
+  if [[ "$rc" -eq "$want" && "$got" == "$write" ]] && { [[ "$message" == "--" ]] || grep -qF -- "$message" "$work/out.txt"; }; then
     echo "ok   $label"
   else
-    echo "FAIL $label: exit $rc (expected $want), write '$got' (expected '$write')"
+    echo "FAIL $label: exit $rc (expected $want), write '$got' (expected '$write'), message '$message'"
     sed 's/^/     /' "$work/out.txt"
     failures=$((failures + 1))
   fi
@@ -66,6 +77,15 @@ expect() {
 ruleset() { jq ".name = \"other-ruleset\" | .bypass_actors = [] | $1" "$root/rulesets/protect-develop.json" >"$work/$2"; echo "$work/$2"; }
 develop_ruleset() { jq "$1" "$root/rulesets/protect-develop.json" >"$work/$2"; echo "$work/$2"; }
 repo_ruleset() { jq "$1" "$work/live-repo.json" | jq 'del(.id, .source_type)' >"$work/$2"; echo "$work/$2"; }
+# check_sent <label> <jq filter on the last body sent>
+check_sent() {
+  if jq -e "$2" "$work/sent.json" >/dev/null; then
+    echo "ok   $1"
+  else
+    echo "FAIL $1"
+    failures=$((failures + 1))
+  fi
+}
 
 echo "== The committed rulesets"
 # Without actor_id: the API ignores it for OrganizationAdmin, null or 1 are both fine.
@@ -84,7 +104,7 @@ else
 fi
 
 echo "== Organisation rulesets"
-expect 1 "committed file without --allow-bypass refused" - -- --apply "$root/rulesets/protect-develop.json"
+expect 1 "committed file without --allow-bypass refused" - "bypass actors need --allow-bypass" --apply "$root/rulesets/protect-develop.json"
 expect 0 "file matches live: nothing to do" - -- --allow-bypass "$root/rulesets/protect-develop.json"
 expect 0 "file matches live, --apply: no write" - -- --apply --allow-bypass "$root/rulesets/protect-develop.json"
 changed=$(ruleset '.enforcement = "evaluate"' changed.json)
@@ -94,22 +114,50 @@ created=$(ruleset '.name = "new-ruleset"' created.json)
 expect 0 "unknown name: dry-run writes nothing" - -- "$created"
 expect 0 "unknown name, --apply: POST" "POST orgs/SoutienScolaireApp/rulesets" -- --apply "$created"
 
+echo "== What is sent"
+only_keys='keys == ["bypass_actors", "conditions", "enforcement", "name", "rules", "target"]'
+swapped=$(ruleset '.enforcement = "evaluate" | .unvalidated = true' swapped.json)
+GH_STUB_CLOBBER="$swapped" expect 0 "PUT of a file changed after validation" "PUT orgs/SoutienScolaireApp/rulesets/3" -- --apply "$swapped"
+check_sent "PUT sends the validated snapshot, without the extra key" "$only_keys and .enforcement == \"evaluate\""
+swapped=$(ruleset '.name = "new-ruleset" | .unvalidated = true' swapped.json)
+GH_STUB_CLOBBER="$swapped" expect 0 "POST of a file changed after validation" "POST orgs/SoutienScolaireApp/rulesets" -- --apply "$swapped"
+check_sent "POST sends the validated snapshot, without the extra key" "$only_keys and .name == \"new-ruleset\""
+
+echo "== Temporary files"
+watched_path="$work/watched-mktemp:$PATH"
+PATH="$watched_path" expect 0 "a write leaves no temporary file" "PUT orgs/SoutienScolaireApp/rulesets/3" -- --apply "$changed"
+PATH="$watched_path" expect 1 "a refusal leaves no temporary file" - "is not a ruleset" "$(ruleset '{name}' tmp-refused.json)"
+if [[ -z "$(ls -A "$work/tmp")" ]]; then
+  echo "ok   temporary files are removed"
+else
+  echo "FAIL temporary files left: $(ls -A "$work/tmp")"
+  failures=$((failures + 1))
+fi
+
+echo "== Diff errors"
+broken_path="$work/broken-diff:$PATH"
+PATH="$broken_path" expect 1 "diff error, --apply: fails closed, no write" - "diff failed (exit 2)" --apply "$changed"
+PATH="$broken_path" expect 1 "diff error, dry-run: fails closed" - "diff failed (exit 2)" "$changed"
+
 echo "== Refusals"
-expect 1 "no bypass_actors key" - -- --apply "$(ruleset 'del(.bypass_actors) | .enforcement = "evaluate"' nobypasskey.json)"
+expect 1 "no bypass_actors key" - "has no bypass_actors key" --apply "$(ruleset 'del(.bypass_actors) | .enforcement = "evaluate"' nobypasskey.json)"
 for value in '[1]' '["Integration"]' '[null]' '[[]]'; do
-  expect 1 "bypass_actors element not an object ($value)" - -- --apply --allow-bypass "$(ruleset ".bypass_actors = $value" notobject.json)"
+  expect 1 "bypass_actors element not an object ($value)" - "must be an object" --apply --allow-bypass "$(ruleset ".bypass_actors = $value" notobject.json)"
 done
 for value in null '{}' '"none"'; do
-  expect 1 "bypass_actors not an array ($value)" - -- --apply --allow-bypass "$(ruleset ".bypass_actors = $value" notarray.json)"
+  expect 1 "bypass_actors not an array ($value)" - "is not an array" --apply --allow-bypass "$(ruleset ".bypass_actors = $value" notarray.json)"
 done
-expect 1 "not a ruleset" - -- "$(ruleset '{name}' notruleset.json)"
+expect 1 "not a ruleset" - "is not a ruleset" "$(ruleset '{name}' notruleset.json)"
+for key in enforcement conditions; do
+  expect 1 "no $key key (the snapshot would hold null)" - "is not a ruleset" --apply "$(ruleset "del(.$key)" nokey.json)"
+done
 bypass=$(ruleset '.bypass_actors = [{"actor_id": 15368, "actor_type": "Integration", "bypass_mode": "always"}]' bypass.json)
-expect 1 "bypass actor without --allow-bypass" - -- --apply "$bypass"
+expect 1 "bypass actor without --allow-bypass" - "bypass actors need --allow-bypass" --apply "$bypass"
 expect 0 "bypass actor with --allow-bypass, --apply" "PUT orgs/SoutienScolaireApp/rulesets/3" -- --apply --allow-bypass "$bypass"
 bypass_case() {
-  local want=$1 label=$2 actor=$3 write=-
-  [[ "$want" -ne 0 ]] || write="PUT orgs/SoutienScolaireApp/rulesets/3"
-  expect "$want" "$label" "$write" -- --apply --allow-bypass "$(ruleset ".bypass_actors = [$actor]" actor.json)"
+  local want=$1 label=$2 actor=$3 write=- message="without a valid actor_id"
+  [[ "$want" -ne 0 ]] || { write="PUT orgs/SoutienScolaireApp/rulesets/3"; message=--; }
+  expect "$want" "$label" "$write" "$message" --apply --allow-bypass "$(ruleset ".bypass_actors = [$actor]" actor.json)"
 }
 for id in 0 '"0"' '""' -5 1.5 null; do
   bypass_case 1 "Integration with actor_id $id refused, even with --allow-bypass" \
@@ -126,10 +174,10 @@ bypass_case 0 "OrganizationAdmin (actor_id 1, ignored by the API) accepted" '{"a
 bypass_case 0 "Team with a positive integer id accepted" '{"actor_id": 7, "actor_type": "Team", "bypass_mode": "pull_request"}'
 break_glass_actor='{"actor_id": null, "actor_type": "OrganizationAdmin", "bypass_mode": "pull_request"}'
 develop_case() {
-  local want=$1 label=$2 actors=$3 write=-
-  [[ "$want" -ne 0 ]] || write="PUT orgs/SoutienScolaireApp/rulesets/1"
-  expect "$want" "protect-develop: $label" "$write" -- --apply --allow-bypass \
-    "$(develop_ruleset ".enforcement = \"evaluate\" | .bypass_actors = $actors" develop.json)"
+  local want=$1 label=$2 actors=$3 write=- message="exactly one bypass actor for protect-develop"
+  [[ "$want" -ne 0 ]] || { write="PUT orgs/SoutienScolaireApp/rulesets/1"; message=--; }
+  expect "$want" "protect-develop: $label" "$write" "$message" --apply --allow-bypass \
+    "$(develop_ruleset ".conditions.repository_name.include += [\"docs\"] | .bypass_actors = $actors" develop.json)"
 }
 develop_case 0 "break-glass with actor_id null accepted" "[$break_glass_actor]"
 develop_case 0 "break-glass with actor_id 1 accepted" '[{"actor_id": 1, "actor_type": "OrganizationAdmin", "bypass_mode": "pull_request"}]'
@@ -138,13 +186,47 @@ develop_case 1 "OrganizationAdmin with bypass_mode always refused" '[{"actor_id"
 develop_case 1 "OrganizationAdmin with actor_id 2 refused" '[{"actor_id": 2, "actor_type": "OrganizationAdmin", "bypass_mode": "pull_request"}]'
 develop_case 1 "a single Team actor refused" '[{"actor_id": 7, "actor_type": "Team", "bypass_mode": "pull_request"}]'
 develop_case 1 "no bypass actor refused" '[]'
+weakened_case() {
+  expect 1 "protect-develop: $1 refused" - "would weaken protect-develop" --apply --allow-bypass \
+    "$(develop_ruleset "$2" weakened.json)"
+}
+weakened_case "enforcement disabled" '.enforcement = "disabled"'
+weakened_case "enforcement evaluate" '.enforcement = "evaluate"'
+weakened_case "target tag" '.target = "tag"'
+weakened_case "empty rules" '.rules = []'
+weakened_case "null conditions" '.conditions = null'
+weakened_case "ref_name include matching nothing" '.conditions.ref_name.include = ["refs/heads/nothing"]'
+weakened_case "empty ref_name include" '.conditions.ref_name.include = []'
+weakened_case "default branch excluded" '.conditions.ref_name.exclude = ["~DEFAULT_BRANCH"]'
+weakened_case "any ref_name exclude" '.conditions.ref_name.exclude = ["refs/heads/nothing"]'
+weakened_case "empty repository_name include" '.conditions.repository_name.include = []'
+weakened_case "repository_name exclude" '.conditions.repository_name.exclude = ["backend"]'
+weakened_case "no repository_name" 'del(.conditions.repository_name)'
+checks='(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks)'
+weakened_case "no required check" "$checks = []"
+weakened_case "Quality Gate replaced" "$checks = [{\"context\": \"Other\", \"integration_id\": 15368}]"
+weakened_case "Quality Gate from another integration" "$checks |= map(.integration_id = 1)"
+params='(.rules[] | select(.type == "pull_request") | .parameters)'
+weakened_case "dismiss_stale_reviews_on_push off" "$params.dismiss_stale_reviews_on_push = false"
+weakened_case "required_review_thread_resolution off" "$params.required_review_thread_resolution = false"
+weakened_case "require_extra_approval_for_unattributed_changes off" "$params.require_extra_approval_for_unattributed_changes = false"
+weakened_case "merge method other than squash" "$params.allowed_merge_methods += [\"merge\"]"
+# Read from the committed file: a rule type added there must join the guard.
+for type in $(jq -r '.rules[].type' "$root/rulesets/protect-develop.json"); do
+  weakened_case "no $type rule" ".rules |= map(select(.type != \"$type\"))"
+done
+expect 0 "protect-develop: ref_name refs/heads/develop accepted" "PUT orgs/SoutienScolaireApp/rulesets/1" -- --apply --allow-bypass \
+  "$(develop_ruleset '.conditions.ref_name.include = ["refs/heads/develop"]' develop-ref.json)"
+expect 0 "protect-develop: repository_name not required with --repo" "POST repos/SoutienScolaireApp/contracts/rulesets" -- \
+  --apply --allow-bypass --repo SoutienScolaireApp/contracts "$(develop_ruleset 'del(.conditions.repository_name)' develop-repo.json)"
 repo_placeholder=$(repo_ruleset '.bypass_actors = [{"actor_id": 0, "actor_type": "Integration", "bypass_mode": "always"}]' repo-placeholder.json)
 expect 1 "repository ruleset with a placeholder bypass actor" \
-  - -- --apply --allow-bypass --repo SoutienScolaireApp/contracts "$repo_placeholder"
-expect 2 "--repo with a .. segment" - -- --repo "SoutienScolaireApp/.." "$root/rulesets/protect-develop.json"
-expect 2 "--repo with a . segment" - -- --repo "./contracts" "$root/rulesets/protect-develop.json"
-expect 2 "malformed --repo" - -- --repo "SoutienScolaireApp" "$root/rulesets/protect-develop.json"
-expect 2 "unknown option" - -- --force "$root/rulesets/protect-develop.json"
+  - "without a valid actor_id" --apply --allow-bypass --repo SoutienScolaireApp/contracts "$repo_placeholder"
+expect 2 "--repo with a .. segment" - "must be SoutienScolaireApp/<repo>" --repo "SoutienScolaireApp/.." "$root/rulesets/protect-develop.json"
+expect 2 "--repo with a . segment" - "must be SoutienScolaireApp/<repo>" --repo "./contracts" "$root/rulesets/protect-develop.json"
+expect 2 "--repo of another owner" - "must be SoutienScolaireApp/<repo>" --repo "Other/contracts" "$root/rulesets/protect-develop.json"
+expect 2 "malformed --repo" - "must be SoutienScolaireApp/<repo>" --repo "SoutienScolaireApp" "$root/rulesets/protect-develop.json"
+expect 2 "unknown option" - "usage:" --force "$root/rulesets/protect-develop.json"
 
 echo "== Repository rulesets (--repo)"
 same=$(repo_ruleset '.' repo-same.json)

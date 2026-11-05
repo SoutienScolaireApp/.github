@@ -23,7 +23,7 @@ Organization-level files of SoutienScolaireApp: the shared reusable workflow, th
 | `rulesets/` | Organization rulesets as code (`protect-develop.json`: protection of the default branch, required `Quality Gate` check) and how to change them. Read its warning before the first `--apply`. |
 | `workflow-templates/gate-integrity.yml`, `.github/workflows/gate-integrity.yml` | `Gate integrity` check (`pull_request_target`, the PR is read as data): template and this repository's copy. |
 | `.github/scripts/gate-integrity.sh` | Checker run by `Gate integrity`, copied into every code repository; tests in `tests/gate-integrity/`, run by the `scripts` job of `ci.yml`. |
-| `scripts/apply-ruleset.sh` | Compares a ruleset file with the live ruleset (dry-run by default) and applies it with `--apply`; organization rulesets, or repository rulesets with `--repo <owner>/<repo>`. Tested by `tests/apply-ruleset/run.sh`. |
+| `scripts/apply-ruleset.sh` | Compares a ruleset file with the live ruleset (dry-run by default) and applies it with `--apply`; organization rulesets, or repository rulesets with `--repo SoutienScolaireApp/<repo>`. Tested by `tests/apply-ruleset/run.sh`. |
 
 The CI templates, the Dependabot templates, the checker and the ruleset come from the former `SchoolEngine/.github`, merged here when the SchoolEngine repositories moved into this organization (SoutienScolaireApp/architecture#25). The issue forms and the pull request template of the code repositories live in each code repository, not here.
 
