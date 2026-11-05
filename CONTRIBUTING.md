@@ -1,6 +1,6 @@
 # Contributing to SoutienScolaireApp
 
-These rules apply to every repository of the organization: the tracking repositories (`docs`, `journal`, `legal`, `.github`) and the code repositories of the SchoolEngine platform (`contracts`, `backend`, `mobile-app`, `parent-web`, `admin-web`, `infrastructure`, `architecture`). A repository's own `CONTRIBUTING.md`, `CLAUDE.md` or README may add stricter rules; it never relaxes these ones. The normative reference is the founding specification (§25 to §28, §37, §38).
+These rules apply to every repository of the organization: the tracking repositories (`docs`, `journal`, `legal`, `.github`) and the code repositories of the platform (`contracts`, `backend`, `mobile-app`, `parent-web`, `admin-web`, `infrastructure`, `architecture`). A repository's own `CONTRIBUTING.md`, `CLAUDE.md` or README may add stricter rules; it never relaxes these ones. The normative reference is the founding specification (§25 to §28, §37, §38).
 
 GitHub shows this file in every repository that has no `CONTRIBUTING.md` of its own. The code repositories carry their own copy, with their issue forms and pull request template.
 

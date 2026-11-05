@@ -1,4 +1,4 @@
-# SchoolEngine CI template: ci-node
+# Shared CI template: ci-node
 # Node.js / TypeScript repositories with pnpm (backend, parent-web, admin-web).
 #
 # Copy this file to .github/workflows/ci.yml and fill the placeholders marked

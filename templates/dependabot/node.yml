@@ -1,4 +1,4 @@
-# SchoolEngine Dependabot template: node
+# Shared Dependabot template: node
 # pnpm repositories (contracts, backend, parent-web, admin-web).
 # Copy to .github/dependabot.yml; append container.yml where an image is built. Rules: DEPENDABOT.md in SoutienScolaireApp/.github.
 version: 2

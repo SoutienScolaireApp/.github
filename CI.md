@@ -1,6 +1,6 @@
-# CI of the SchoolEngine repositories
+# CI of the code repositories
 
-Every SchoolEngine repository owns one workflow, `.github/workflows/ci.yml`, copied from a template of this repository. There is no reusable workflow: a repository's CI is readable in one file and changes through a pull request of that repository. Security tool choices: ADR-014 (`SoutienScolaireApp/architecture`).
+Every code repository, and this one, owns one workflow, `.github/workflows/ci.yml`, copied from a template of this repository. There is no reusable workflow: a repository's CI is readable in one file and changes through a pull request of that repository. Security tool choices: ADR-014 (`SoutienScolaireApp/architecture`).
 
 ## Templates
 

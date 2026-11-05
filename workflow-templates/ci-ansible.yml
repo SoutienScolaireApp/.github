@@ -1,4 +1,4 @@
-# SchoolEngine CI template: ci-ansible
+# Shared CI template: ci-ansible
 # Ansible / Podman infrastructure repository (infrastructure).
 #
 # Copy this file to .github/workflows/ci.yml and fill the placeholders marked

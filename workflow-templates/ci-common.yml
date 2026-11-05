@@ -1,4 +1,4 @@
-# SchoolEngine CI template: ci-common
+# Shared CI template: ci-common
 # Docs and configuration repositories (architecture, .github): common checks only.
 #
 # Copy this file to .github/workflows/ci.yml and fill the placeholders marked

@@ -1,4 +1,4 @@
-# SchoolEngine CI template: ci-openapi
+# Shared CI template: ci-openapi
 # OpenAPI contract repository (contracts): lint, breaking changes, generation drift.
 #
 # Copy this file to .github/workflows/ci.yml and fill the placeholders marked

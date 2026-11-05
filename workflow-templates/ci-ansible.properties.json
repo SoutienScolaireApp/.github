@@ -1,5 +1,5 @@
 {
-  "name": "SchoolEngine CI: Ansible",
+  "name": "CI: Ansible",
   "description": "Quality Gate for the infrastructure repository: common checks plus ansible-lint, playbook syntax-check and sops encryption check.",
   "categories": [
     "Continuous integration",

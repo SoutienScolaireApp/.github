@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Gate integrity: detects a pull request that weakens the Quality Gate
-# (SchoolEngine/.github#22). Copied as is into every SchoolEngine repository
+# (SchoolEngine/.github#22). Copied as is into every code repository
 # and run by .github/workflows/gate-integrity.yml (pull_request_target), from
 # the default branch: a PR is never judged by its own copy of this script.
 #

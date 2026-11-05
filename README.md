@@ -1,6 +1,6 @@
 # .github
 
-Organization-level files of SoutienScolaireApp: the shared reusable workflow, the CI and Dependabot templates of the SchoolEngine code repositories, the organization ruleset kept as code, and the default community files.
+Organization-level files of SoutienScolaireApp: the shared reusable workflow, the CI and Dependabot templates of the code repositories, the organization ruleset kept as code, and the default community files.
 
 | File | Purpose |
 |---|---|

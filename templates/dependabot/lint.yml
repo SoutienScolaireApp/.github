@@ -1,4 +1,4 @@
-# SchoolEngine Dependabot template: lint
+# Shared Dependabot template: lint
 # Entries to append to the updates: list of .github/dependabot.yml in every
 # repository: the lint tools of the `YAML and Markdown lint` job, pinned with
 # their hashes in .github/lint/ (copied from templates/lint/).
