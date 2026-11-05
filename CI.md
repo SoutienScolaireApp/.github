@@ -7,8 +7,8 @@ Every SchoolEngine repository owns one workflow, `.github/workflows/ci.yml`, cop
 | Template | For | Jobs on top of the common ones |
 |---|---|---|
 | [`ci-common`](workflow-templates/ci-common.yml) | Docs and configuration repositories (`architecture`, `.github`) | none |
-| [`ci-node`](workflow-templates/ci-node.yml) | pnpm repositories (`backend`, `parent-web`, `admin-web`) | `node`: token guard, [contracts lockfile guard](#the-contracts-lockfile-guard), frozen install without scripts reading `contracts` over HTTPS only, format check (Prettier), lint, typecheck, tests with a coverage floor (`COVERAGE_MIN`: 80 % for `backend`, 70 % for `parent-web` and `admin-web`), build |
-| [`ci-flutter`](workflow-templates/ci-flutter.yml) | `mobile-app` | `flutter`: pinned SDK (sha256 verified), enforced lockfile, `dart format --set-exit-if-changed`, `flutter analyze`, `flutter test --coverage`, coverage floor 70 % |
+| [`ci-node`](workflow-templates/ci-node.yml) | pnpm repositories (`backend`, `parent-web`, `admin-web`) | `node`: token guard, [contracts lockfile guard](#the-contracts-lockfile-guard), frozen install without scripts [reading `contracts`](#reading-the-private-contracts-repository) over HTTPS only, format check (Prettier), lint, typecheck, tests with a coverage floor (`COVERAGE_MIN`: 80 % for `backend`, 70 % for `parent-web` and `admin-web`), build |
+| [`ci-flutter`](workflow-templates/ci-flutter.yml) | `mobile-app` | `flutter`: pinned SDK (sha256 verified), token guard, HTTPS-only check of `contracts`, enforced lockfile [reading `contracts`](#reading-the-private-contracts-repository), `dart format --set-exit-if-changed`, `flutter analyze`, `flutter test --coverage`, coverage floor 70 % |
 | [`ci-openapi`](workflow-templates/ci-openapi.yml) | `contracts` | `openapi-lint` (Spectral 6.16.3 standalone binary, sha256 verified, rule set `.spectral.yaml` from `templates/openapi/`, warnings block), `oasdiff` (breaking changes against the latest `v*` release tag, or the base branch while no release exists; the whole top-level directory of `OPENAPI_SPEC`, `openapi/v1/openapi.yaml` in `contracts`, is the baseline, so a split document compares correctly), `generation-drift` (`git status` must stay clean after regeneration) |
 | [`ci-ansible`](workflow-templates/ci-ansible.yml) | `infrastructure` | `ansible`: pinned ansible-core and ansible-lint, `--syntax-check` of every playbook; `sops`: every tracked `<name>.sops.yml`, `.yaml` or `.json` is encrypted (the sops configuration `.sops.yaml` has no prefix and is not matched; file names are read NUL separated and unquoted, so a non-ASCII name is checked too; `tests/sops-regex/run.sh`) |
 
@@ -160,6 +160,39 @@ In a pnpm repository, `.prettierignore` lists `*.md`, `*.yml` and `*.yaml` (plus
 - **Dependabot PRs** are exempt from the `Closes #n` check only (author `dependabot[bot]`); their `chore(deps): ...` titles pass the title check like any other.
 - **Whole history, weekly**: `gitleaks-history.yml` scans every commit reachable from any branch or tag every Monday, and is run by hand (**Actions > Secrets history scan > Run workflow**) before any mirror or migration of a repository (the Forgejo mirror included). The `gitleaks` job of `ci.yml` only scans the commits of the PR. A finding of the scheduled run only shows as a red run in the Actions tab (and GitHub's failure email to the last person who changed the schedule): no issue or PR check is created, so look at it every week. GitHub disables a scheduled workflow after 60 days without repository activity; re-enable it in **Actions > Secrets history scan** if the repository was quiet.
 - **Checksum provenance**: every tool downloaded in a `run:` step is checked against a sha256 pinned in `env:`, never against a checksum file of the same release. The accepted risk is the first pin: the sha256 is taken once from the release (asset digest, cross-checked locally); a release replaced before that moment would be pinned as is.
+
+## Reading the private contracts repository
+
+The generated API clients are git dependencies on the private `SoutienScolaireApp/contracts`: `@usc/api-client` for pnpm, `usc_api_client` for pub. CI reads that repository through the GitHub App "SchoolEngine CI". The normative rules are ADR-013 rule 9 ([Amendment 1](https://github.com/SoutienScolaireApp/architecture/blob/develop/adr/ADR-013-api-client-distribution.md#amendment-1-2026-10-16-dependabot-and-ci-access-to-contracts), then Amendment 3) in `SoutienScolaireApp/architecture`; this section says how the templates apply them.
+
+**Consumers only.** The steps are in `ci-node` and `ci-flutter`, the templates of the four consumers (`backend`, `mobile-app`, `parent-web`, `admin-web`). `ci-common`, `ci-openapi` and `ci-ansible` carry none. A repository copied from `ci-node` or `ci-flutter` that does not consume a client deletes the guards, the credential check, the token step and the `env:` of the install step: the credentials are not shared with it, so the check would fail.
+
+| Credential | Kind | Purpose |
+|---|---|---|
+| GitHub App "SchoolEngine CI" | Organization App | Repository permission `Contents: read` only, installed on `contracts` only |
+| `SCHOOLENGINE_CI_APP_CLIENT_ID` | Organization variable | Client ID of the App, not a secret |
+| `SCHOOLENGINE_CI_APP_PRIVATE_KEY` | Organization Actions secret | App key for ordinary runs |
+| `SCHOOLENGINE_CI_APP_PRIVATE_KEY` | Organization Dependabot secret | Second key of the same App, for the CI of Dependabot PRs: same name, other store |
+
+The variable and both secrets are limited to the four consumers.
+
+**In the job that installs dependencies** (`node`, `flutter`):
+
+1. The workflow declares `permissions: contents: read` and runs on `pull_request`; the job keeps the fork guard, so a fork PR never reaches a token. A job that mints the token only runs on `push` or a same-repository `pull_request`, never on `pull_request_target` or `workflow_run`.
+2. `GIT_SSH_COMMAND: "false"` and `GIT_TERMINAL_PROMPT: "0"` are set at **job level**: an SSH attempt fails closed, and a URL that no rewrite matches fails fast.
+3. Two guards run before any token exists. The token guard fails on a tracked file holding `x-access-token:` followed by a value, or `ghs_`, and prints only `file:line`. The lockfile guard differs by client: pnpm runs [the contracts lockfile guard](#the-contracts-lockfile-guard), which also accepts the SSH spelling Dependabot records; pub refuses `git@github.com`, `ssh://` and `git+ssh` in `pubspec.yaml` and `pubspec.lock`, because `contracts` has one form there, HTTPS.
+4. A credential check ends with a clear `::error::` when the variable or the secret is missing. The private key never enters a `run:` step: the step only receives whether it is set.
+5. `actions/create-github-app-token`, pinned by SHA, mints a token per job with `owner: SoutienScolaireApp`, `repositories: contracts` and `permission-contents: read`. It lasts one hour at most, and the action masks it and revokes it in its post step.
+6. The rewrite exists only in the `env:` of the install step (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, `GIT_CONFIG_VALUE_n`), anchored on `contracts.git`. `ci-node` carries two values of it (the HTTPS and SSH spellings), `ci-flutter` one (HTTPS). Never `git config --global`, never a file, never a rewrite of `git@github.com:` as a whole. The install step is the only reader of the token output, which is never copied to another output, `GITHUB_ENV`, an artifact or a cache.
+7. The install runs no package script: `pnpm install --frozen-lockfile --ignore-scripts`, or `flutter pub get --enforce-lockfile`, which runs none.
+
+The guards are steps of the `node` and `flutter` jobs, and those jobs are in the `needs:` of `Quality Gate`, so a failed guard blocks the merge. `tests/ci-templates/run.sh` holds the token guard, the credential check, the token step and the job-level `env:` the same in both templates, and runs the two `ci-flutter` guards on fixtures. It does not read the consumers' copies, which follow in their own PRs.
+
+**Residual risks.**
+
+- A writer to a consumer can exfiltrate an App key through a modified workflow, and read `contracts` with it. Bounded by `Contents: read` on `contracts` only, review of every PR, yearly key rotation and the emergency revocation of ADR-013 rule 9.
+- The guards catch accidents and Dependabot rewrites. They are not a control against a PR author, who could change the workflow itself: that is the role of review and of [Gate integrity](#gate-integrity).
+- The HTTPS-only transport rests on the job-level `GIT_SSH_COMMAND`: a job that loses it could try SSH with whatever the runner holds. This is harmless only while no runner has an SSH agent, key or deploy key for GitHub, which holds for GitHub-hosted runners and is a requirement for self-hosted ones.
 
 ## The contracts lockfile guard
 

@@ -6,7 +6,9 @@
 #    configurations and the history scan of this repository are copies of
 #    the templates;
 # 2. the `PR title and linked issue` script of ci-common, run against a stub
-#    of the GitHub API on a table of titles and bodies.
+#    of the GitHub API on a table of titles and bodies;
+# 3. the contracts read of ci-flutter: same steps as ci-node, step order, token
+#    scope, and the two guards run on fixtures.
 #
 # Usage: tests/ci-templates/run.sh   (needs yq, jq)
 set -euo pipefail
@@ -108,5 +110,83 @@ pr 1 "suffix not at the end" me 'ci(templates): fix (#8) drift' 'Closes #8'
 pr 1 "not Conventional Commits" me 'Fix drift (#8)' 'Closes #8'
 pr 0 "Dependabot: no suffix nor closing keyword" 'dependabot[bot]' 'chore(deps): bump actions/checkout' ''
 pr 1 "Dependabot: title still checked" 'dependabot[bot]' 'Bump actions/checkout' ''
+
+# --- 3. contracts read of ci-flutter ----------------------------------------
+node=workflow-templates/ci-node.yml
+flutter=workflow-templates/ci-flutter.yml
+step() { yq -o=json ".jobs.$1.steps[] | select(.name == \"$2\")" "$3"; }
+
+for s in 'No installation token in tracked files' 'Mint a read-only token for SoutienScolaireApp/contracts'; do
+  want=$(step node "$s" "$node")
+  [[ -n "$want" ]] || ko "step '$s' not found in $node"
+  check "step '$s' of ci-flutter is the one of ci-node" "step '$s' differs between ci-flutter and ci-node" \
+    test "$(step flutter "$s" "$flutter")" == "$want"
+done
+# Only the client name differs: same variable, secret, tests and messages.
+s='Require the SchoolEngine CI App credentials'
+want=$(step node "$s" "$node")
+[[ -n "$want" ]] || ko "step '$s' not found in $node"
+check "step '$s' of ci-flutter is the one of ci-node" "step '$s' differs between ci-flutter and ci-node (client name aside)" \
+  test "$(step flutter "$s" "$flutter" | sed 's/usc_api_client/@usc\/api-client/g')" == "$want"
+
+check "job env of ci-flutter is the one of ci-node" "job env of ci-flutter differs from ci-node (GIT_SSH_COMMAND, GIT_TERMINAL_PROMPT)" \
+  test "$(yq -o=json '.jobs.flutter.env' "$flutter")" == "$(yq -o=json '.jobs.node.env' "$node")"
+check "job env of ci-flutter disables SSH" "job env of ci-flutter does not set GIT_SSH_COMMAND to false" \
+  test "$(yq '.jobs.flutter.env.GIT_SSH_COMMAND' "$flutter")" == "false"
+
+install='Install dependencies (enforced lockfile)'
+check "install of ci-flutter has the HTTPS rewrite of ci-node" "install of ci-flutter: not exactly one rewrite, the HTTPS value of ci-node" \
+  test "$(step flutter "$install" "$flutter" | jq -cS '.env')" == \
+  "$(yq -o=json '.jobs.node.steps[] | select(.name == "Install (frozen lockfile, no scripts)") | .env' "$node" \
+    | jq -cS '{GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0, GIT_CONFIG_VALUE_0}')"
+check "install of ci-flutter enforces the lockfile" "install of ci-flutter does not run flutter pub get --enforce-lockfile" \
+  test "$(step flutter "$install" "$flutter" | jq -r '.run')" == 'flutter pub get --enforce-lockfile'
+check "only the install step reads the token" "contracts-token.outputs is used outside the install step of ci-flutter" \
+  test "$(grep -c 'contracts-token\.outputs' "$flutter")" -eq 1
+
+# Guards before the token, the token before the install.
+order=$(yq '.jobs.flutter.steps[].name' "$flutter" | grep -E '^(No installation token|Contracts is referenced|Require the SchoolEngine|Mint a read-only|Install dependencies)' | cut -d' ' -f1 | tr '\n' ' ')
+check "steps of ci-flutter in order" "steps of ci-flutter out of order: $order" \
+  test "$order" == "No Contracts Require Mint Install "
+
+# The two guards, run on fixtures.
+step flutter 'Contracts is referenced by its HTTPS URL' "$flutter" | jq -r '.run' >"$work/pubspec-guard.sh"
+step flutter 'No installation token in tracked files' "$flutter" | jq -r '.run' >"$work/token-guard.sh"
+url=https://github.com/SoutienScolaireApp/contracts.git
+mkdir "$work/pub"
+pub() {  # pub <want exit> <label> <pubspec.yaml url> <pubspec.lock url>
+  local want="$1" label="$2" rc=0
+  printf 'dependencies:\n  usc_api_client:\n    git:\n      url: %s\n' "$3" >"$work/pub/pubspec.yaml"
+  printf 'packages:\n  usc_api_client:\n    description:\n      url: "%s"\n' "$4" >"$work/pub/pubspec.lock"
+  (cd "$work/pub" && bash "$work/pubspec-guard.sh") >"$work/out" 2>&1 || rc=$?
+  if [[ "$rc" -eq "$want" ]]; then ok "pubspec guard: $label"; else ko "pubspec guard: $label (exit $rc, want $want)"; cat "$work/out"; fi
+}
+pub 0 "HTTPS in both files" "$url" "$url"
+pub 1 "scp form in pubspec.yaml" git@github.com:SoutienScolaireApp/contracts.git "$url"
+pub 1 "scp form in pubspec.lock" "$url" git@github.com:SoutienScolaireApp/contracts.git
+pub 1 "ssh:// in pubspec.lock" "$url" ssh://github.com/SoutienScolaireApp/contracts.git
+pub 1 "git+ssh in pubspec.yaml" git+ssh://github.com/SoutienScolaireApp/contracts.git "$url"
+pub 1 "another case" GIT@GitHub.com:SoutienScolaireApp/contracts.git "$url"
+
+mkdir "$work/repo"
+git -C "$work/repo" init -q
+absent() { ! grep -qF -- "$1" "$2"; }
+tok() {  # tok <want exit> <label> <file content>
+  local want="$1" label="$2" rc=0
+  printf '%s\n' "$3" >"$work/repo/f"
+  git -C "$work/repo" add f
+  (cd "$work/repo" && bash "$work/token-guard.sh") >"$work/out" 2>&1 || rc=$?
+  if [[ "$rc" -eq "$want" ]]; then ok "token guard: $label"; else ko "token guard: $label (exit $rc, want $want)"; cat "$work/out"; fi
+  if [[ "$want" -eq 1 ]]; then
+    check "token guard: $label, not printed" "token guard: $label, the token is in the output" \
+      absent "$3" "$work/out"
+  fi
+}
+# Built here so no scanner reads this script as holding a token.
+fake="ghs""_$(printf 'a%.0s' {1..24})"
+# shellcheck disable=SC2016  # the literal expression of the install step
+tok 0 "workflow expression" 'x-access-token:${{ steps.contracts-token.outputs.token }}@github.com'
+tok 1 "token URL" "https://x-access-token:abc123@github.com/SoutienScolaireApp/contracts.git"
+tok 1 "installation token" "$fake"
 
 exit "$fail"
