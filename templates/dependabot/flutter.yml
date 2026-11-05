@@ -1,4 +1,4 @@
-# SchoolEngine Dependabot template: flutter
+# Shared Dependabot template: flutter
 # Flutter repository (mobile-app).
 # Copy to .github/dependabot.yml. Rules: DEPENDABOT.md in SoutienScolaireApp/.github.
 version: 2

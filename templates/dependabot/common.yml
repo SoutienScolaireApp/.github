@@ -1,4 +1,4 @@
-# SchoolEngine Dependabot template: common
+# Shared Dependabot template: common
 # Repositories without a package manifest (architecture, .github, infrastructure).
 # Copy to .github/dependabot.yml. Rules: DEPENDABOT.md in SoutienScolaireApp/.github.
 version: 2

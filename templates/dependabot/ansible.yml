@@ -1,4 +1,4 @@
-# SchoolEngine Dependabot template: ansible
+# Shared Dependabot template: ansible
 # Entry to append to the updates: list of .github/dependabot.yml in the
 # repository that uses ci-ansible: the Ansible toolchain of the `ansible` job,
 # pinned with its hashes in .github/ansible/ (copied from templates/ansible/).

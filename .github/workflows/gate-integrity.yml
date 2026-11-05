@@ -1,4 +1,4 @@
-# Gate integrity of SchoolEngine, from workflow-templates/gate-integrity.yml of
+# Gate integrity check, from workflow-templates/gate-integrity.yml of
 # SoutienScolaireApp/.github. Copied as is into every repository, next to
 # .github/scripts/gate-integrity.sh. Rules and residual risks: CI.md in
 # SoutienScolaireApp/.github, "Gate integrity".

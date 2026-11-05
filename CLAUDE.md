@@ -67,7 +67,7 @@ Not here: issue forms and the pull request template. Each code repository carrie
 
 - .github#11: organization onboarding and contributor policy.
 - .github#13: follow-ups of the template drift fixes (the Actions policy is applied since 2026-11-01; the Dependabot residual risk of `CI.md`, "Allowed actions", is still watched).
-- .github#15: replace the remaining SchoolEngine mentions in the shared templates.
+- .github#15: propagate the neutral header wording of the shared templates to the consumer repositories.
 - .github#16: stop Dependabot relocking `@usc/api-client` over SSH in `pnpm-lock.yaml`.
 
 ## Never do

@@ -1,6 +1,6 @@
 # Dependency updates with Dependabot
 
-SchoolEngine repositories keep their dependencies up to date with Dependabot version updates and Dependabot security updates (ADR-014 in `SoutienScolaireApp/architecture`; Dependabot replaces the Renovate of the founding specification). Dependabot alerts are enabled on the organisation.
+The code repositories keep their dependencies up to date with Dependabot version updates and Dependabot security updates (ADR-014 in `SoutienScolaireApp/architecture`; Dependabot replaces the Renovate of the founding specification). Dependabot alerts are enabled on the organisation.
 
 ## Templates
 

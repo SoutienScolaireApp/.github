@@ -1,5 +1,5 @@
 {
-  "name": "SchoolEngine Gate integrity",
+  "name": "Gate integrity",
   "description": "Required check that detects a pull request weakening the Quality Gate (pull_request_target, the PR is read as data, never run). Copy .github/scripts/gate-integrity.sh with it.",
   "categories": [
     "Continuous integration"

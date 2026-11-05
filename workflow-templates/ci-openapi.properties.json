@@ -1,5 +1,5 @@
 {
-  "name": "SchoolEngine CI: OpenAPI contracts",
+  "name": "CI: OpenAPI contracts",
   "description": "Quality Gate for the contracts repository: common checks plus Spectral lint, oasdiff breaking-change check and generated clients drift.",
   "categories": [
     "Continuous integration",

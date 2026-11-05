@@ -1,4 +1,4 @@
-# SchoolEngine markdownlint-cli2 configuration. Copy to the repository root as
+# Shared markdownlint-cli2 configuration. Copy to the repository root as
 # .markdownlint-cli2.yaml (read by the `YAML and Markdown lint` job of ci.yml).
 config:
   default: true
