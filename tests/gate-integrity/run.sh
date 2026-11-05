@@ -351,6 +351,50 @@ head=$(head_of '.')
 echo "# changed" >>"$head/.github/scripts/gate-integrity.sh"
 gate_change_case "the checker changed" "$head"
 
+# A write permission is judged against the base branch: a workflow that keeps
+# its writes needs no justification, whatever the PR. The rule itself must
+# fire: any edit of a workflow already makes a "workflow changed" gate change.
+write_workflow="on: {push: {branches: [develop]}}
+permissions: {}
+jobs:
+  publish: {runs-on: ubuntu-latest, permissions: {id-token: write, packages: write}, steps: [{run: \"true\"}]}
+  scan: {runs-on: ubuntu-latest, permissions: {contents: read, packages: read}, steps: [{uses: \"actions/checkout@$sha_a\"}]}"
+write_base="$work/write-base"
+tree "$write_base" "$templates/ci-node.yml"
+echo "$write_workflow" >"$write_base/.github/workflows/image.yml"
+write_head() {
+  tree "$work/write-head" "$templates/ci-node.yml"
+  echo "$write_workflow" >"$work/write-head/.github/workflows/image.yml"
+  yq -i "$1" "$work/write-head/.github/workflows/image.yml"
+  echo "$work/write-head"
+}
+check_write() { "$script" check "$write_base" "$1"; }
+write_change_case() {
+  local label=$1 head=$2
+  expect 1 "$label, no justification" feat_pr check_write "$head"
+  grep -q 'grants write permissions' "$work/out.txt" || fail "$label: the write rule did not report it"
+  expect 0 "$label, justified" justified_pr check_write "$head"
+}
+expect 0 "a workflow with unchanged write permissions" feat_pr check_write "$(write_head '.')"
+expect 0 "Dependabot: an action SHA bumped in a workflow with write permissions" dependabot_pr check_write \
+  "$(write_head '(.jobs.scan.steps[0].uses) = "actions/checkout@1111111111111111111111111111111111111111"')"
+write_change_case "a read permission widened to write" "$(write_head '.jobs.scan.permissions.contents = "write"')"
+write_change_case "a write scope added at the top level" "$(write_head '.permissions.statuses = "write"')"
+write_change_case "a write scope removed" "$(write_head 'del(.jobs.publish.permissions.id-token)')"
+head=$(write_head '.')
+mv "$head/.github/workflows/image.yml" "$head/.github/workflows/renamed.yml"
+write_change_case "a workflow with write permissions renamed (no base to compare)" "$head"
+# The same scope, so the same write set: left to the workflow comparison.
+expect 1 "a known write scope granted to another job, no justification" feat_pr check_write \
+  "$(write_head '.jobs.scan.permissions.packages = "write"')"
+for change in '.on = {"pull_request": {}}' '.permissions = "write-all"'; do
+  head=$(write_head "$change")
+  expect 1 "already on the base branch, still refused even justified: $change" \
+    justified_pr "$script" check "$head" "$head"
+done
+echo ': [' >"$write_base/.github/workflows/image.yml"
+write_change_case "a base workflow that does not parse" "$(write_head '.')"
+
 # Tool pins (.github/lint/, .github/ansible/): a person's change is a gate change, a
 # verified Dependabot bump is not; adding or removing one always is.
 lint_base="$work/lint-base"

@@ -284,9 +284,20 @@ list_workflows() {
   (cd "$1" && find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort)
 }
 
-# Rules that hold for every workflow file of the PR.
+# The write permissions of a workflow (JSON), at any level, sorted: one set per
+# file. A write moved to another job keeps the set; the comparison of the whole
+# workflow with the base branch (check_workflows) reports that one.
+write_set() {
+  jq -r '
+    [(.permissions // empty), (.jobs // {} | .[] | .permissions // empty)]
+    | map(if type == "string" then select(. == "write-all")
+          else to_entries[] | select(.value == "write") | .key end)
+    | unique | join(", ")' <<<"$1"
+}
+
+# Rules that hold for every workflow file of the PR, against its base version.
 check_workflow_rules() {
-  local path=$1 file=$2 json found
+  local path=$1 file=$2 base_file=$3 json found
   found=$(yq ea '[.] | length' "$file")
   if [[ "$found" != "1" ]]; then
     hard_error "$path: exactly one YAML document expected, found $found."
@@ -345,20 +356,19 @@ check_workflow_rules() {
     | map(select(. == "pull_request_target" or . == "workflow_run")) | join(", ")' <<<"$json")
   [[ -z "$found" ]] || hard_error "$path: trigger forbidden outside $INTEGRITY_FILE (it runs with the base repository's trust): $found."
 
-  local triggers writes
+  local triggers writes base_writes=""
   triggers=$(jq -c '(.on // {}) | if type == "string" then [.] elif type == "array" then . else keys end' <<<"$json")
-  writes=$(jq -r '
-    [(.permissions // empty), (.jobs // {} | .[] | .permissions // empty)]
-    | map(if type == "string" then select(. == "write-all")
-          else to_entries[] | select(.value == "write") | .key end)
-    | unique | join(", ")' <<<"$json")
+  writes=$(write_set "$json")
   [[ -n "$writes" ]] || return 0
   if [[ "$writes" == *write-all* ]] \
       || jq -e --argjson pr "$PR_TRIGGERS" 'any(.[]; . as $t | $pr | index($t))' <<<"$triggers" >/dev/null; then
     hard_error "$path: write permission forbidden with write-all or on a trigger a PR author can cause ($(jq -r 'join(", ")' <<<"$triggers")): $writes."
-  else
-    gate_change "$path grants write permissions ($writes) on $(jq -r 'join(", ")' <<<"$triggers")."
+    return 0
   fi
+  # A base version that cannot be read counts as no write: the set then differs.
+  [[ ! -f "$base_file" ]] || base_writes=$(write_set "$(yaml_json "$base_file")") || base_writes=""
+  [[ "$writes" == "$base_writes" ]] \
+    || gate_change "$path grants write permissions ($writes, base branch: ${base_writes:-none}) on $(jq -r 'join(", ")' <<<"$triggers")."
 }
 
 # How a workflow is compared with the base branch: gate-integrity.yml always
@@ -374,7 +384,7 @@ comparable() {
 check_workflows() {
   local base_dir=$1 head_dir=$2 path
   while IFS= read -r path; do
-    check_workflow_rules "$path" "$head_dir/$path"
+    check_workflow_rules "$path" "$head_dir/$path" "$base_dir/$path"
     [[ "$path" != "$CI_FILE" ]] || continue
     if [[ ! -f "$base_dir/$path" ]]; then
       gate_change "new workflow $path (a workflow can report checks and act on the repository)."
