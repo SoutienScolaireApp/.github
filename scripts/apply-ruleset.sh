@@ -118,12 +118,21 @@ if jq -e '.name == "protect-develop"' "$payload" >/dev/null; then
   # A safety net against an accident, not a control against an owner. The rule
   # types are the ones of rulesets/protect-develop.json: written here, since a
   # guard read from the file would not catch that file losing one.
-  if ! jq -e '
+  if ! jq -e --arg repo "$repo" '
       .enforcement == "active" and .target == "branch"
       and ((["deletion", "non_fast_forward", "required_linear_history", "pull_request", "required_status_checks"] - [.rules[]?.type?]) == [])
+      and any(.rules[]? | select(.type? == "required_status_checks") | .parameters.required_status_checks[]?;
+        .context == "Quality Gate" and .integration_id == 15368)
+      and any(.rules[]? | select(.type? == "pull_request") | .parameters;
+        .dismiss_stale_reviews_on_push == true
+        and .required_review_thread_resolution == true
+        and .require_extra_approval_for_unattributed_changes == true
+        and .allowed_merge_methods == ["squash"])
       and any(.conditions.ref_name.include[]?; IN("~DEFAULT_BRANCH", "refs/heads/develop"))
-      and (any(.conditions.ref_name.exclude[]?; IN("~DEFAULT_BRANCH", "refs/heads/develop")) | not)' "$payload" >/dev/null; then
-    echo "Refused: $file would weaken protect-develop: it needs enforcement active, target branch, the rule types deletion, non_fast_forward, required_linear_history, pull_request and required_status_checks, and a ref_name including (not excluding) ~DEFAULT_BRANCH or refs/heads/develop." >&2
+      and ((.conditions.ref_name.exclude // []) == [])
+      and ($repo != "" or (.conditions.repository_name
+        | (.include | type == "array" and length > 0) and ((.exclude // []) == [])))' "$payload" >/dev/null; then
+    echo "Refused: $file would weaken protect-develop: it needs enforcement active, target branch, the rule types deletion, non_fast_forward, required_linear_history, pull_request and required_status_checks, the Quality Gate check (integration 15368), the pull_request parameters of rulesets/README.md, a ref_name including ~DEFAULT_BRANCH or refs/heads/develop with no exclude and, in an organisation, a repository_name include with no exclude." >&2
     exit 1
   fi
 fi
