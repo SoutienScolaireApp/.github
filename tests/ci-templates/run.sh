@@ -192,10 +192,8 @@ tok 1 "installation token" "$fake"
 yq '.jobs.ansible.steps[] | select(.name == "Require the Ansible toolchain pins") | .run' \
   workflow-templates/ci-ansible.yml >"$work/pins.sh"
 mkdir -p "$work/pins"
-check "ansible pins: a missing file fails" "ansible pins: a missing file passes" \
-  bash -c '! (cd "$1/pins" && bash ../pins.sh >/dev/null)' _ "$work"
+if (cd "$work/pins" && bash ../pins.sh >/dev/null); then ko "ansible pins: a missing file passes"; else ok "ansible pins: a missing file fails"; fi
 mkdir -p "$work/pins/.github/ansible" && touch "$work/pins/.github/ansible/requirements.txt"
-check "ansible pins: the file is there" "ansible pins: the file is refused" \
-  bash -c 'cd "$1/pins" && bash ../pins.sh' _ "$work"
+if (cd "$work/pins" && bash ../pins.sh); then ok "ansible pins: the file is there"; else ko "ansible pins: the file is refused"; fi
 
 exit "$fail"
