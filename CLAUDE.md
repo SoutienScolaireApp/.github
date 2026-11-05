@@ -24,10 +24,11 @@ Public so that GitHub applies `CONTRIBUTING.md` and `SECURITY.md` as defaults to
 .github/workflows/gitleaks-history.yml      weekly history scan, copy of the template
 .github/scripts/gate-integrity.sh           checker copied unchanged into every code repository
 .github/lint/  .yamllint.yml  .markdownlint-cli2.yaml   copies of templates/lint/
-.github/dependabot.yml                      common template + pip/npm for the lint tools, also scans workflow-templates/
+.github/dependabot.yml                      common template + pip/npm for the lint tools, pip for templates/ansible/, also scans workflow-templates/
 workflow-templates/                         ci-common, ci-node, ci-flutter, ci-openapi, ci-ansible, gate-integrity, gitleaks-history
 templates/lint/                             yamllint and markdownlint-cli2 configs, hashed lint tool pins
-templates/dependabot/                       common, node, flutter, container, lint
+templates/ansible/                          hashed ci-ansible toolchain pins, copied to .github/ansible/ in infrastructure
+templates/dependabot/                       common, node, flutter, container, lint, ansible
 templates/openapi/.spectral.yaml            Spectral rule set for contracts
 templates/contracts-lock/                   check-contracts-lock.sh, copied unchanged into each pnpm consumer
 rulesets/protect-develop.json               organization ruleset as code; scripts/apply-ruleset.sh applies it

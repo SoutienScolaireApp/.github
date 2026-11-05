@@ -8,7 +8,8 @@
 # 2. the `PR title and linked issue` script of ci-common, run against a stub
 #    of the GitHub API on a table of titles and bodies;
 # 3. the contracts read of ci-flutter: same steps as ci-node, step order, token
-#    scope, and the two guards run on fixtures.
+#    scope, and the two guards run on fixtures;
+# 4. the pre-check of the Ansible toolchain pins of ci-ansible.
 #
 # Usage: tests/ci-templates/run.sh   (needs yq, jq)
 set -euo pipefail
@@ -186,5 +187,13 @@ fake="ghs""_$(printf 'a%.0s' {1..24})"
 tok 0 "workflow expression" 'x-access-token:${{ steps.contracts-token.outputs.token }}@github.com'
 tok 1 "token URL" "https://x-access-token:abc123@github.com/SoutienScolaireApp/contracts.git"
 tok 1 "installation token" "$fake"
+
+# --- 4. Ansible toolchain pins of ci-ansible ---------------------------------
+yq '.jobs.ansible.steps[] | select(.name == "Require the Ansible toolchain pins") | .run' \
+  workflow-templates/ci-ansible.yml >"$work/pins.sh"
+mkdir -p "$work/pins"
+if (cd "$work/pins" && bash ../pins.sh >/dev/null); then ko "ansible pins: a missing file passes"; else ok "ansible pins: a missing file fails"; fi
+mkdir -p "$work/pins/.github/ansible" && touch "$work/pins/.github/ansible/requirements.txt"
+if (cd "$work/pins" && bash ../pins.sh); then ok "ansible pins: the file is there"; else ko "ansible pins: the file is refused"; fi
 
 exit "$fail"
