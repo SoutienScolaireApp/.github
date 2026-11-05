@@ -283,6 +283,68 @@ jobs:
           fi
           echo "Only moderate or low findings: not blocking (tracked by Dependabot alerts)."
 
+  gate-drift:
+    name: Gate copy drift
+    # GitHub-hosted until the self-hosted lanes exist (SoutienScolaireApp/infrastructure#12).
+    # Future: runs-on: [self-hosted, Linux, X64, <lane>]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+    steps:
+      # Depth 2: the merge commit and its first parent, the base branch tip.
+      - name: Checkout the merge commit and its parents
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      # Rules and reasons: CI.md, "Drift of the copies". No token: the source
+      # is public. Files are compared by mode and blob hash, never run. An
+      # unreadable source warns, so an outage does not block every PR, but
+      # fails a PR that touches the files: that one must not pass unseen.
+      - name: Compare the Gate integrity copies with the public source
+        env:
+          SOURCE_REPO: SoutienScolaireApp/.github
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REPOSITORY" == "$SOURCE_REPO" ]]; then
+            echo "::notice::This repository is the source of both files: nothing to compare."
+            exit 0
+          fi
+
+          files=(.github/workflows/gate-integrity.yml .github/scripts/gate-integrity.sh)
+          touched=$(git diff --name-only HEAD^1 HEAD -- "${files[@]}")
+          unreadable() {
+            if [[ -n "$touched" ]]; then
+              echo "::error::This PR changes the Gate integrity files and ${SOURCE_REPO} develop could not be read ($1): re-run this job."
+              exit 1
+            fi
+            echo "::warning::Could not read ${SOURCE_REPO} develop ($1): drift not checked, re-run this job to check it."
+            exit 0
+          }
+          if ! timeout 60 git fetch --quiet --no-tags --depth=1 "${GITHUB_SERVER_URL}/${SOURCE_REPO}.git" develop; then
+            unreadable "fetch failed"
+          fi
+
+          drift=()
+          for f in "${files[@]}"; do
+            public=$(git ls-tree FETCH_HEAD -- "$f")
+            [[ -n "$public" ]] || unreadable "$f is missing there"
+            [[ "$(git ls-tree HEAD -- "$f")" == "$public" ]] || drift+=("$f")
+          done
+
+          if [[ "${#drift[@]}" -eq 0 ]]; then
+            echo "Both files are the ones of ${SOURCE_REPO} develop."
+          elif [[ -n "$touched" ]]; then
+            echo "::error::This PR changes the Gate integrity files, and ${drift[*]} differs from ${SOURCE_REPO} develop: copy both unchanged from there."
+            exit 1
+          else
+            echo "::warning::${drift[*]} differs from ${SOURCE_REPO} develop: copy both unchanged from there in a dedicated PR."
+          fi
+
   # The SDK is installed from the official archive rather than through a
   # setup action: popular Flutter setup actions call nested actions by tag,
   # which the organisation's SHA-pinning policy refuses.
@@ -432,7 +494,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [pr-conventions, gitleaks, actionlint, lint-yaml-markdown, osv-scanner, flutter]
+    needs: [pr-conventions, gitleaks, actionlint, lint-yaml-markdown, osv-scanner, gate-drift, flutter]
     if: ${{ !cancelled() }}
     steps:
       - name: Require every job to succeed

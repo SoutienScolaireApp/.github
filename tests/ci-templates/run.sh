@@ -29,7 +29,7 @@ others=(workflow-templates/ci-ansible.yml workflow-templates/ci-flutter.yml
   workflow-templates/ci-node.yml workflow-templates/ci-openapi.yml .github/workflows/ci.yml)
 
 # --- 1. drift ---------------------------------------------------------------
-for job in pr-conventions gitleaks actionlint lint-yaml-markdown osv-scanner; do
+for job in pr-conventions gitleaks actionlint lint-yaml-markdown osv-scanner gate-drift; do
   want=$(yq -o=json ".jobs.\"$job\"" "$ref")
   for f in "${others[@]}"; do
     check "job $job of $f is the one of $ref" "job $job of $f differs from $ref" \
