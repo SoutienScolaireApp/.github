@@ -180,6 +180,8 @@ expect 0 "no ci.yml on the base branch" feat_pr "$script" check "$work/t-base" "
 echo "== Hard failures (never accepted, even justified)"
 expect 1 "a common job removed" justified_pr check \
   "$(head_of 'del(.jobs.osv-scanner) | .jobs.quality-gate.needs -= ["osv-scanner"]')"
+expect 1 "the gate-drift common job removed" justified_pr check \
+  "$(head_of 'del(.jobs.gate-drift) | .jobs.quality-gate.needs -= ["gate-drift"]')"
 expect 1 "needs shrunk (job kept, out of the gate)" justified_pr check \
   "$(head_of '.jobs.quality-gate.needs -= ["node"]')"
 # shellcheck disable=SC2016  # literal GitHub expressions

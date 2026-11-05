@@ -61,7 +61,7 @@ The cost: after every merge, the other open PRs of the repository are out of dat
 
 `Gate integrity` (SchoolEngine/.github#22, [CI.md](../CI.md#gate-integrity)) is not in `protect-develop.json` yet: it is added by a separate **activation PR**, applied right after its merge. A required check that a repository never reports blocks every merge there, and a `pull_request_target` workflow only runs once it is on the default branch, so the order is fixed:
 
-1. **Rollout.** In every repository, a PR copies `.github/workflows/gate-integrity.yml` and `.github/scripts/gate-integrity.sh` from this repository unchanged. That PR gets no `Gate integrity` run (the workflow is not on `develop` yet).
+1. **Rollout.** In every repository, a PR copies `.github/workflows/gate-integrity.yml` and `.github/scripts/gate-integrity.sh` from this repository unchanged, and adds the `gate-drift` job to `ci.yml` and to the gate's `needs:`. That PR gets no `Gate integrity` run (the workflow is not on `develop` yet).
 2. **Canary.** In every repository, a trivial PR (a typo fix, for example) must show `Gate integrity` green, and a deliberately weakened draft PR (a job removed from the gate's `needs:`) must show it red; close the draft. Check that every repository has both files on `develop` (each line must say `ok`):
 
    ```bash

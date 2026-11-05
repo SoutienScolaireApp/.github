@@ -31,7 +31,7 @@
 #   security) recorded on the PR, not this script.
 set -euo pipefail
 
-readonly COMMON_JOBS=(pr-conventions gitleaks actionlint lint-yaml-markdown osv-scanner)
+readonly COMMON_JOBS=(pr-conventions gitleaks actionlint lint-yaml-markdown osv-scanner gate-drift)
 readonly GATE_JOB="quality-gate"
 readonly GATE_NAME="Quality Gate"
 # shellcheck disable=SC2016  # a literal GitHub expression, not a shell one

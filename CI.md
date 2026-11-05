@@ -21,6 +21,7 @@ Common jobs, in every template:
 | `actionlint` | Workflows (actionlint) | any actionlint or shellcheck finding in the workflows |
 | `lint-yaml-markdown` | YAML and Markdown lint | yamllint (`--strict`) or markdownlint finding |
 | `osv-scanner` | Vulnerable dependencies (osv-scanner) | a high or critical vulnerability (CVSS 7.0 or more), or one without a score, in a committed lockfile |
+| `gate-drift` | Gate copy drift | a PR that touches `gate-integrity.yml` or `gate-integrity.sh` while either differs from public `.github` `develop`: see [Drift of the copies](#drift-of-the-copies) |
 | `quality-gate` | **Quality Gate** | any job above that did not succeed |
 
 Next to `ci.yml`, every repository has `.github/workflows/gate-integrity.yml` ([template](workflow-templates/gate-integrity.yml)), the `Gate integrity` check: see [Gate integrity](#gate-integrity), and `.github/workflows/gitleaks-history.yml` ([template](workflow-templates/gitleaks-history.yml)), the weekly scan of the whole history: see [Security rules](#security-rules-adr-014).
@@ -83,7 +84,7 @@ Rules, all learned on TheOpenMusicBox:
 
 | Finding | With a `## Gate change` justification? |
 |---|---|
-| A common job missing from `ci.yml` (`pr-conventions`, `gitleaks`, `actionlint`, `lint-yaml-markdown`, `osv-scanner`), or `quality-gate` missing or renamed | refused |
+| A common job missing from `ci.yml` (`pr-conventions`, `gitleaks`, `actionlint`, `lint-yaml-markdown`, `osv-scanner`, `gate-drift`), or `quality-gate` missing or renamed | refused |
 | The gate's `if:` not exactly `${{ !cancelled() }}`; a job not in its `needs:`; `continue-on-error` other than an explicit `false` anywhere in `ci.yml` | refused |
 | In any workflow: more than one YAML document, duplicate keys in a mapping, a YAML anchor, alias or merge key; a top-level key other than `name`, `run-name`, `on`, `permissions`, `env`, `defaults`, `concurrency`, `jobs` (keys are case-sensitive: `On:` is refused); no top-level `permissions:`; a `shell` other than exactly `bash`, `sh`, `pwsh`, `powershell`, `python` or `cmd`; a job named like a required check (`Quality Gate` outside `ci.yml`'s `quality-gate`, `Gate integrity` outside `gate-integrity.yml`'s `gate-integrity`) | refused |
 | In any workflow: a job `name:` with an expression in any form other than `<name> (${{ matrix.<key> }})` (the rendered name then ends with `)` and can never be a required check's exact name; `Code quality (${{ matrix.os }})` is fine) | refused |
@@ -121,9 +122,25 @@ It is a detective control with a narrow preventive core, not a guarantee:
 
 ### Rolling it out to a repository
 
-One `ci(quality-gate)` PR per repository copies `.github/workflows/gate-integrity.yml` and `.github/scripts/gate-integrity.sh` from this repository unchanged. That PR gets no `Gate integrity` run (the workflow is not on `develop` yet); the next ones do. Canary, activation, break-glass and new repositories: [`rulesets/README.md`](rulesets/README.md#enabling-the-gate-integrity-check).
+One `ci(quality-gate)` PR per repository copies `.github/workflows/gate-integrity.yml` and `.github/scripts/gate-integrity.sh` from this repository unchanged, and adds the `gate-drift` job to `ci.yml` and to the gate's `needs:` in the same PR: the checker refuses a `ci.yml` without that job. That PR gets no `Gate integrity` run (the workflow is not on `develop` yet); the next ones do. Canary, activation, break-glass and new repositories: [`rulesets/README.md`](rulesets/README.md#enabling-the-gate-integrity-check).
 
 To change the checker: change it and its tests here (`tests/gate-integrity/run.sh`, run by the `scripts` job of this repository's `ci.yml`), then copy it into each repository in a PR justified as a gate change.
+
+### Drift of the copies
+
+The `gate-drift` job of each `ci.yml` compares both files, by git blob hash, with `develop` of public `SoutienScolaireApp/.github`. It uses no token: it reads a public repository with an anonymous `git fetch`, and only compares the files, never runs them.
+
+| The PR (merge commit against its first parent) | Result |
+|---|---|
+| Touches either file, and either differs from the source | fails, the PR must copy both unchanged |
+| Touches neither, and either differs | `::warning::`, the job passes: a merge in this repository must not turn the others red before their copies land |
+| Both files match | passes |
+| The source cannot be read within 60 seconds, or lacks a file | `::warning::`, the job passes, drift not checked: an outage must not block every PR. Re-run the job to check |
+
+- **In this repository** the job passes with a `::notice::` and fetches nothing: it is the source, a PR here legitimately differs from `develop`, and comparing `develop` with itself proves nothing. The job stays in `ci.yml` so that the common jobs stay identical. Here, `tests/gate-integrity/run.sh` checks the workflow against its template.
+- **Fork PRs** skip the job with the same guard as the other common jobs: it never fails one on its own, and `Quality Gate` stays red on a fork PR as it already does.
+- **Dependabot.** A bump of an action SHA in a repository's `gate-integrity.yml` touches that file: it fails until the same bump is on `develop` here. Merge the `.github` PR first, then re-run the job on the other PRs.
+- It runs from the PR's own `ci.yml`, so a PR can edit it: `Gate integrity` reports that as a gate change. This job detects drift, it is not a control against a hostile PR. Tests: `tests/gate-drift/run.sh`.
 
 ### Ignore files
 
