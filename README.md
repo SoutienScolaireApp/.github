@@ -57,9 +57,10 @@ Requirements:
 
 - the `contribution` label exists in the calling repository (exact case: GitHub Actions label matching is case-sensitive);
 - the organization automation GitHub App is installed on the repository, with read and write access to organization projects and read access to issues;
-- the organization variable `AUTOMATION_APP_ID` and the organization secret `AUTOMATION_APP_PRIVATE_KEY` are visible to the repository.
+- the repository variable `AUTOMATION_APP_ID` exists in the calling repository;
+- a calling repository creates the environment `automation-app` **before its first call**, with a deployment branch policy limited to `develop`, and stores the secret `AUTOMATION_APP_PRIVATE_KEY` in that environment. A workflow that references a missing environment creates it on its first run, with no protection rule and no secret. The job sets `environment` itself because a calling job cannot; `secrets: inherit` is still needed to pass the secret.
 
-The workflow token needs no permission: the job authenticates as the App with a short-lived installation token. In this repository the caller is `add-to-project-caller.yml` and references the workflow by its local path.
+The workflow token needs no permission: the job authenticates as the App with a short-lived installation token. In this repository the caller is `add-to-project-caller.yml` and references the workflow by its local path; the environment exists here with the same policy and never holds a secret.
 
 ## Inheritance by the other repositories
 

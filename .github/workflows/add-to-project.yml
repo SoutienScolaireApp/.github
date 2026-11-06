@@ -7,7 +7,7 @@ name: Add contribution issues to the board (shared)
 #
 # Callers trigger it on `issues` events and pass `secrets: inherit`. The
 # `github` and `vars` contexts are the caller's, so the issue payload and the
-# organization variable are read from the calling repository.
+# repository variable are read from the calling repository.
 on:
   workflow_call:
     secrets:
@@ -24,6 +24,9 @@ jobs:
     # Skip the runner entirely for issues without the label: no token is
     # minted for them.
     if: contains(github.event.issue.labels.*.name, 'contribution')
+    # An environment secret reaches a reusable workflow only through this job:
+    # the calling job cannot set `environment`.
+    environment: automation-app
     runs-on: ubuntu-latest
     steps:
       # Mints a short-lived installation token (valid one hour) scoped to the
