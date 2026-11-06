@@ -103,6 +103,14 @@ else
   failures=$((failures + 1))
 fi
 
+required='[{"context":"Gate integrity","integration_id":15368},{"context":"Quality Gate","integration_id":15368}]'
+if [[ "$(jq -c '[.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]] | sort_by(.context)' "$root/rulesets/protect-develop.json")" == "$required" ]]; then
+  echo "ok   protect-develop.json requires Quality Gate and Gate integrity from GitHub Actions"
+else
+  echo "FAIL protect-develop.json required checks are not exactly Quality Gate and Gate integrity from GitHub Actions"
+  failures=$((failures + 1))
+fi
+
 echo "== Organisation rulesets"
 expect 1 "committed file without --allow-bypass refused" - "bypass actors need --allow-bypass" --apply "$root/rulesets/protect-develop.json"
 expect 0 "file matches live: nothing to do" - -- --allow-bypass "$root/rulesets/protect-develop.json"
@@ -206,6 +214,9 @@ checks='(.rules[] | select(.type == "required_status_checks") | .parameters.requ
 weakened_case "no required check" "$checks = []"
 weakened_case "Quality Gate replaced" "$checks = [{\"context\": \"Other\", \"integration_id\": 15368}]"
 weakened_case "Quality Gate from another integration" "$checks |= map(.integration_id = 1)"
+# The break-glass of rulesets/README.md: the check must stay removable with this script.
+expect 0 "protect-develop: Gate integrity removed (its break-glass) accepted" "PUT orgs/SoutienScolaireApp/rulesets/1" -- --apply --allow-bypass \
+  "$(develop_ruleset "$checks |= map(select(.context != \"Gate integrity\"))" break-glass.json)"
 params='(.rules[] | select(.type == "pull_request") | .parameters)'
 weakened_case "dismiss_stale_reviews_on_push off" "$params.dismiss_stale_reviews_on_push = false"
 weakened_case "required_review_thread_resolution off" "$params.required_review_thread_resolution = false"
