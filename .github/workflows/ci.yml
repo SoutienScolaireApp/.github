@@ -3,9 +3,10 @@
 # this repository only.
 #
 # Shape, rules and the Quality Gate contract: CI.md in SoutienScolaireApp/.github.
-# Never rename the `quality-gate` job nor its name `Quality Gate`: it is the
-# single required check of the protect-develop ruleset. A new job is added to
-# the `needs:` list of `quality-gate`, nothing else. Tool versions and action
+# Never rename the `quality-gate` job nor its name `Quality Gate`: it is a
+# required check of the protect-develop ruleset, whose source of truth is
+# rulesets/protect-develop.json in this repository. A new job is added to the
+# `needs:` list of `quality-gate`, nothing else. Tool versions and action
 # SHAs are kept in sync with the template (bump them there first).
 
 name: CI
@@ -410,7 +411,7 @@ jobs:
             echo "::endgroup::"
           done
 
-  # The single required check. Its `if:` is exactly `!cancelled()` and nothing
+  # A required check. Its `if:` is exactly `!cancelled()` and nothing
   # else: a false condition skips the job and a skipped required check counts
   # as passing. No fork guard here on purpose: on a fork PR every job above is
   # skipped and this gate fails.
