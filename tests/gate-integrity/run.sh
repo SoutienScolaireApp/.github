@@ -48,6 +48,7 @@ assert() {
 }
 
 echo "== Invariants of the gate-integrity workflow"
+assert "the job keeps the name of the required check" '.jobs["gate-integrity"].name == "Gate integrity"'
 assert "only the pull_request_target trigger" '(.on | keys) == ["pull_request_target"]'
 assert "triggers on opened, synchronize, reopened and edited" \
   '(.on.pull_request_target.types | sort) == ["edited", "opened", "reopened", "synchronize"]'
