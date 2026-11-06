@@ -4,7 +4,8 @@
 # Copy this file to .github/workflows/ci.yml and fill the placeholders marked
 # TODO(scaffold). Shape, rules and the Quality Gate contract: CI.md in
 # SoutienScolaireApp/.github. Never rename the `quality-gate` job nor its name
-# `Quality Gate`: it is the single required check of the protect-develop ruleset.
+# `Quality Gate`: it is a required check of the protect-develop ruleset, whose
+# source of truth is rulesets/protect-develop.json in SoutienScolaireApp/.github.
 # A new job is added to the `needs:` list of `quality-gate`, nothing else.
 #
 # ansible-lint reads .yamllint.yml too: keep the ansible-compatible settings
@@ -469,7 +470,7 @@ jobs:
           echo "$count sops file(s) checked."
           exit "$status"
 
-  # The single required check. Its `if:` is exactly `!cancelled()` and nothing
+  # A required check. Its `if:` is exactly `!cancelled()` and nothing
   # else: a false condition skips the job and a skipped required check counts
   # as passing. No fork guard here on purpose: on a fork PR every job above is
   # skipped and this gate fails.
