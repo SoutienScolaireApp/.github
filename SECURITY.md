@@ -8,7 +8,7 @@ Do **not** open a regular issue, pull request or discussion that describes an ex
 
 Report it privately through one of these channels:
 
-- **GitHub private vulnerability reporting** (preferred): open the [Report a vulnerability form](https://github.com/SoutienScolaireApp/.github/security/advisories/new) of the public `SoutienScolaireApp/.github` repository (its **Security** tab, then **Report a vulnerability**). You need a GitHub account. The report is visible only to you and the maintainers.
+- **GitHub private vulnerability reporting** (preferred): open the [Report a vulnerability form](https://github.com/SoutienScolaireApp/.github/security/advisories/new) of the public `SoutienScolaireApp/.github` repository (its **Security** tab, then **Report a vulnerability**). You need a GitHub account. The report stays private: only you and the administrators and security managers of the organization can see it.
 - **Email**: **<dev@monatelierweb.com>**, if you cannot or prefer not to use GitHub.
 
 GitHub offers private vulnerability reporting on public repositories only, and each repository enables it separately. `.github` is the only public repository of the organization, so its form is the GitHub channel for every repository, the private ones included: name the affected repository in the report.

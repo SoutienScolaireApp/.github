@@ -10,7 +10,7 @@ Normative references: founding specification (`FOUNDING-SPECIFICATION.md` in `So
 
 ## Public repository: what follows
 
-Public so that GitHub applies `CONTRIBUTING.md` and `SECURITY.md` as defaults to every repository without its own. Everything else in the organization is private.
+Public so that GitHub applies `CONTRIBUTING.md` and `SECURITY.md` as defaults to every repository without its own. Everything else in the organization is private. Private vulnerability reporting is enabled on this repository (2026-11-12, #49) and must stay enabled: `SECURITY.md` points every reporter to its form.
 
 **Nothing confidential is ever committed here**: no secret, no personal data, no specification, roadmap, threat model, security finding, infrastructure detail or customer name. The controls (`CI.md`, `rulesets/`, the templates) are public on purpose: they say how a change is checked, not where the product is weak. Any public landing page (`profile/README.md`, not present today) is communication: its wording requires Céline's approval and is never written by an agent on its own initiative.
 
