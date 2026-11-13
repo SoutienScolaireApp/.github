@@ -190,6 +190,19 @@ In a pnpm repository, `.prettierignore` lists `*.md`, `*.yml` and `*.yaml` (plus
 - **Whole history, weekly**: `gitleaks-history.yml` scans every commit reachable from any branch or tag every Monday, and is run by hand (**Actions > Secrets history scan > Run workflow**) before any mirror or migration of a repository (the Forgejo mirror included). The `gitleaks` job of `ci.yml` only scans the commits of the PR. A finding of the scheduled run only shows as a red run in the Actions tab (and GitHub's failure email to the last person who changed the schedule): no issue or PR check is created, so look at it every week. GitHub disables a scheduled workflow after 60 days without repository activity; re-enable it in **Actions > Secrets history scan** if the repository was quiet.
 - **Checksum provenance**: every tool downloaded in a `run:` step is checked against a sha256 pinned in `env:`, never against a checksum file of the same release. The accepted risk is the first pin: the sha256 is taken once from the release (asset digest, cross-checked locally); a release replaced before that moment would be pinned as is.
 
+## Fork pull requests and run retention
+
+Organisation and repository Actions settings decided by Céline on 2026-11-13 (.github#11). Changing them is an owner action, recorded in an issue.
+
+**Approval of fork pull request runs.** On this repository, the only public one, the policy is `all_external_contributors` (it was `first_time_contributors`): the `pull_request` workflows of a pull request from a fork do not run until someone with write access approves them. It applies when the pull request is opened by, or the event is triggered by, an account that is not a member of the organisation or of the repository, including people who already had a pull request merged; organisation members are never asked. The private repositories refuse forks, so the setting has no object there.
+
+- The run shows as **awaiting approval**. Read the diff first, workflow files included (`.github/workflows/`, `.github/scripts/`, `tests/`), then click **Approve workflows to run** in the merge box of the pull request (the Actions tab offers **Approve and run** on the waiting run).
+- Count on one approval per run: GitHub documents no carry-over, so each new push of the contributor waits again. Review what changed since the last approval before approving.
+- A run left waiting for more than 30 days expires and is marked failed.
+- What approval changes: only `ci.yml` waits. Once approved, its jobs get a read-only token and no secret, and the fork guard skips every common job, so `Quality Gate` fails on a fork pull request either way ([The shape every `ci.yml` keeps](#the-shape-every-ciyml-keeps)). `Gate integrity` runs on `pull_request_target` from the base branch, which GitHub never holds for approval: it reports without one and executes nothing from the fork.
+
+**Retention of artifacts and logs.** The organisation keeps Actions artifacts and logs for **15 days**. The value applies to runs created after the change; older runs keep the retention they had. A run link stops showing its logs after that delay, so the evidence a ticket relies on (the verdict, the failing step, the relevant log lines) is copied into the issue or the pull request within 15 days, not only linked.
+
 ## Reading the private contracts repository
 
 The generated API clients are git dependencies on the private `SoutienScolaireApp/contracts`: `@usc/api-client` for pnpm, `usc_api_client` for pub. CI reads that repository through the GitHub App "SchoolEngine CI". The normative rules are ADR-013 rule 9 ([Amendment 1](https://github.com/SoutienScolaireApp/architecture/blob/develop/adr/ADR-013-api-client-distribution.md#amendment-1-2026-10-16-dependabot-and-ci-access-to-contracts), then Amendment 3) in `SoutienScolaireApp/architecture`; this section says how the templates apply them.
@@ -204,6 +217,8 @@ The generated API clients are git dependencies on the private `SoutienScolaireAp
 | `SCHOOLENGINE_CI_APP_PRIVATE_KEY` | Organization Dependabot secret | Second key of the same App, for the CI of Dependabot PRs: same name, other store |
 
 The variable and both secrets are limited to the four consumers.
+
+**Key custody** (decided by Céline on 2026-11-13, .github#11; this applies to the private keys of every organisation App, `schoolengine-release` included). A private key lives only in the project owner's password manager, plus an encrypted offline backup (an encrypted USB disk image), and in the GitHub secret that uses it (organisation Actions or Dependabot secret, or environment secret). No copy is kept in any repository, not even sops-encrypted in `infrastructure`. A lost key is not recovered: generate a new private key in the App settings, update the secrets that hold it, then delete the old key there.
 
 **In the job that installs dependencies** (`node`, `flutter`):
 
