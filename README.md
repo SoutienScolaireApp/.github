@@ -67,3 +67,5 @@ The workflow token needs no permission: the job authenticates as the App with a 
 This repository is public, so GitHub applies `CONTRIBUTING.md` and `SECURITY.md` as defaults to every repository of the organization that does not define its own ([GitHub docs: creating a default community health file](https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/creating-a-default-community-health-file)). They stay generic: they apply to `docs`, `journal` and `legal` as much as to the code repositories.
 
 Being public, this repository must never hold anything confidential: no secret, no personal data, no internal roadmap, no threat model and no security finding. The controls it documents (`CI.md`, `rulesets/`, the templates) are public on purpose: they describe how every change is checked, which any contributor needs to know, not where the product is weak.
+
+Brownout test of 2026-11-16, never merged.
