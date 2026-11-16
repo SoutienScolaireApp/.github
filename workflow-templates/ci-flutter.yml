@@ -38,6 +38,7 @@ env:
   NODE_VERSION: '24.21.0'
   # Flutter SDK archive, verified against the sha256 published in
   # https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json
+  # Keep FLUTTER_VERSION equal to `environment: flutter:` in pubspec.yaml.
   FLUTTER_VERSION: '3.47.6'
   FLUTTER_SHA256: 'f1631b9c2c8b3529323db412b0d1beacf4a748f8783b0d7cf599a8fd5f461675'
   # Coverage floor, in percent of lines (spec §28).
@@ -463,12 +464,29 @@ jobs:
       - name: Test with coverage
         run: flutter test --coverage
 
-      # TODO(scaffold): exclude generated files (*.g.dart, *.freezed.dart) from
-      # coverage/lcov.info before this step if the app has any.
+      # TODO(scaffold): a file no test loads is absent from lcov.info and
+      # escapes the floor. mobile-app fails on it with the step `Every layer
+      # file is in the coverage report` (dart run tool/coverage_all_files.dart
+      # coverage/lcov.info): copy the script and the step if the app needs it.
+
+      # Generated files (*.g.dart, *.freezed.dart, generated/) are filtered out
+      # of lcov.info: the floor measures written code only.
+      # TODO(scaffold): add the excluded layers of the app to the SF: test
+      # (mobile-app: || $0 ~ /^SF:lib\/presentation\//, ADR-001).
+      - name: Filter the coverage report
+        run: |
+          set -euo pipefail
+          awk '
+            /^SF:/ { skip = ($0 ~ /\/generated\// || $0 ~ /\.(g|freezed)\.dart$/) }
+            !skip { print }
+            /^end_of_record/ { skip = 0 }
+          ' coverage/lcov.info > coverage/lcov.filtered.info
+          grep '^SF:' coverage/lcov.filtered.info || true
+
       - name: Coverage floor
         run: |
           set -euo pipefail
-          lcov=coverage/lcov.info
+          lcov=coverage/lcov.filtered.info
           if [[ ! -s "$lcov" ]]; then
             echo "::error::$lcov is missing or empty."
             exit 1

@@ -9,7 +9,8 @@
 #    of the GitHub API on a table of titles and bodies;
 # 3. the contracts read of ci-flutter: same steps as ci-node, step order, token
 #    scope, and the two guards run on fixtures;
-# 4. the pre-check of the Ansible toolchain pins of ci-ansible.
+# 4. the pre-check of the Ansible toolchain pins of ci-ansible;
+# 5. the coverage filter and floor of ci-flutter, run on an lcov fixture.
 #
 # Usage: tests/ci-templates/run.sh   (needs yq, jq)
 set -euo pipefail
@@ -195,5 +196,37 @@ mkdir -p "$work/pins"
 if (cd "$work/pins" && bash ../pins.sh >/dev/null); then ko "ansible pins: a missing file passes"; else ok "ansible pins: a missing file fails"; fi
 mkdir -p "$work/pins/.github/ansible" && touch "$work/pins/.github/ansible/requirements.txt"
 if (cd "$work/pins" && bash ../pins.sh); then ok "ansible pins: the file is there"; else ko "ansible pins: the file is refused"; fi
+
+# --- 5. coverage filter and floor of ci-flutter -------------------------------
+step flutter 'Filter the coverage report' "$flutter" | jq -r '.run' >"$work/filter.sh"
+step flutter 'Coverage floor' "$flutter" | jq -r '.run' >"$work/floor.sh"
+mkdir -p "$work/cov/coverage"
+# written.dart: 1 of 4 lines hit (25 %); every generated file fully hit.
+cat >"$work/cov/coverage/lcov.info" <<'LCOV'
+SF:lib/written.dart
+LF:4
+LH:1
+end_of_record
+SF:lib/model.g.dart
+LF:50
+LH:50
+end_of_record
+SF:lib/state.freezed.dart
+LF:50
+LH:50
+end_of_record
+SF:lib/generated/l10n.dart
+LF:50
+LH:50
+end_of_record
+LCOV
+(cd "$work/cov" && bash ../filter.sh >/dev/null)
+check "coverage filter: generated files removed" "coverage filter kept: $(grep '^SF:' "$work/cov/coverage/lcov.filtered.info" | tr '\n' ' ')" \
+  test "$(grep '^SF:' "$work/cov/coverage/lcov.filtered.info")" == "SF:lib/written.dart"
+if (cd "$work/cov" && COVERAGE_MIN=70 bash ../floor.sh >/dev/null 2>&1); then
+  ko "coverage floor: 25 % of written code passes a floor of 70 % (generated files counted)"
+else ok "coverage floor: measured on the filtered report"; fi
+if (cd "$work/cov" && COVERAGE_MIN=25 bash ../floor.sh >/dev/null 2>&1); then ok "coverage floor: 25 % passes a floor of 25 %"
+else ko "coverage floor: 25 % fails a floor of 25 %"; fi
 
 exit "$fail"
