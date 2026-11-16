@@ -124,7 +124,7 @@ for s in 'No installation token in tracked files' 'Mint a read-only token for So
     test "$(step flutter "$s" "$flutter")" == "$want"
 done
 # Only the client name differs: same variable, secret, tests and messages.
-s='Require the SchoolEngine CI App credentials'
+s='Require the contracts-reader-ssa App credentials'
 want=$(step node "$s" "$node")
 [[ -n "$want" ]] || ko "step '$s' not found in $node"
 check "step '$s' of ci-flutter is the one of ci-node" "step '$s' differs between ci-flutter and ci-node (client name aside)" \
@@ -146,7 +146,7 @@ check "only the install step reads the token" "contracts-token.outputs is used o
   test "$(grep -c 'contracts-token\.outputs' "$flutter")" -eq 1
 
 # Guards before the token, the token before the install.
-order=$(yq '.jobs.flutter.steps[].name' "$flutter" | grep -E '^(No installation token|Contracts is referenced|Require the SchoolEngine|Mint a read-only|Install dependencies)' | cut -d' ' -f1 | tr '\n' ' ')
+order=$(yq '.jobs.flutter.steps[].name' "$flutter" | grep -E '^(No installation token|Contracts is referenced|Require the contracts-reader-ssa|Mint a read-only|Install dependencies)' | cut -d' ' -f1 | tr '\n' ' ')
 check "steps of ci-flutter in order" "steps of ci-flutter out of order: $order" \
   test "$order" == "No Contracts Require Mint Install "
 

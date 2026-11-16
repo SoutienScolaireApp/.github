@@ -379,9 +379,9 @@ jobs:
       # @usc/api-client is a git dependency on the private SoutienScolaireApp/contracts
       # (ADR-013 rules 5 and 9, Amendments 1 and 3; every ci-node repository
       # consumes it today). CI reads it with an installation token of the
-      # GitHub App "SchoolEngine CI" (Contents: read, installed on contracts
-      # only): organisation variable SCHOOLENGINE_CI_APP_CLIENT_ID, organisation
-      # secret SCHOOLENGINE_CI_APP_PRIVATE_KEY (and a Dependabot secret of the
+      # GitHub App contracts-reader-ssa (Contents: read, installed on contracts
+      # only): organisation variable CONTRACTS_READER_APP_CLIENT_ID, organisation
+      # secret CONTRACTS_READER_APP_PRIVATE_KEY (and a Dependabot secret of the
       # same name for Dependabot PRs). The two guards run before any token exists.
       - name: No installation token in tracked files
         run: |
@@ -406,19 +406,19 @@ jobs:
           sh "$guard" pnpm-lock.yaml package.json
 
       # The private key never enters a run step: only whether it is set.
-      - name: Require the SchoolEngine CI App credentials
+      - name: Require the contracts-reader-ssa App credentials
         env:
-          APP_CLIENT_ID: ${{ vars.SCHOOLENGINE_CI_APP_CLIENT_ID }}
-          HAS_PRIVATE_KEY: ${{ secrets.SCHOOLENGINE_CI_APP_PRIVATE_KEY != '' }}
+          APP_CLIENT_ID: ${{ vars.CONTRACTS_READER_APP_CLIENT_ID }}
+          HAS_PRIVATE_KEY: ${{ secrets.CONTRACTS_READER_APP_PRIVATE_KEY != '' }}
         run: |
           set -euo pipefail
           status=0
           if [[ -z "${APP_CLIENT_ID}" ]]; then
-            echo "::error::The organisation variable SCHOOLENGINE_CI_APP_CLIENT_ID is empty or not shared with this repository: @usc/api-client (SoutienScolaireApp/contracts) cannot be fetched. See ADR-013 rule 9."
+            echo "::error::The organisation variable CONTRACTS_READER_APP_CLIENT_ID is empty or not shared with this repository: @usc/api-client (SoutienScolaireApp/contracts) cannot be fetched. See ADR-013 rule 9."
             status=1
           fi
           if [[ "${HAS_PRIVATE_KEY}" != 'true' ]]; then
-            echo "::error::The organisation secret SCHOOLENGINE_CI_APP_PRIVATE_KEY is empty or not shared with this run (a Dependabot PR needs the Dependabot secret of the same name). See ADR-013 rule 9."
+            echo "::error::The organisation secret CONTRACTS_READER_APP_PRIVATE_KEY is empty or not shared with this run (a Dependabot PR needs the Dependabot secret of the same name). See ADR-013 rule 9."
             status=1
           fi
           exit "$status"
@@ -429,8 +429,8 @@ jobs:
         id: contracts-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # actions/create-github-app-token@v3.3.0
         with:
-          client-id: ${{ vars.SCHOOLENGINE_CI_APP_CLIENT_ID }}
-          private-key: ${{ secrets.SCHOOLENGINE_CI_APP_PRIVATE_KEY }}
+          client-id: ${{ vars.CONTRACTS_READER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CONTRACTS_READER_APP_PRIVATE_KEY }}
           owner: SoutienScolaireApp
           repositories: contracts
           permission-contents: read

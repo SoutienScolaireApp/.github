@@ -205,20 +205,20 @@ Organisation and repository Actions settings decided by Céline on 2026-11-13 (.
 
 ## Reading the private contracts repository
 
-The generated API clients are git dependencies on the private `SoutienScolaireApp/contracts`: `@usc/api-client` for pnpm, `usc_api_client` for pub. CI reads that repository through the GitHub App "SchoolEngine CI". The normative rules are ADR-013 rule 9 ([Amendment 1](https://github.com/SoutienScolaireApp/architecture/blob/develop/adr/ADR-013-api-client-distribution.md#amendment-1-2026-10-16-dependabot-and-ci-access-to-contracts), then Amendment 3) in `SoutienScolaireApp/architecture`; this section says how the templates apply them.
+The generated API clients are git dependencies on the private `SoutienScolaireApp/contracts`: `@usc/api-client` for pnpm, `usc_api_client` for pub. CI reads that repository through the GitHub App `contracts-reader-ssa`. The normative rules are ADR-013 rule 9 ([Amendment 1](https://github.com/SoutienScolaireApp/architecture/blob/develop/adr/ADR-013-api-client-distribution.md#amendment-1-2026-10-16-dependabot-and-ci-access-to-contracts), then Amendment 3) in `SoutienScolaireApp/architecture`; this section says how the templates apply them.
 
 **Consumers only.** The steps are in `ci-node` and `ci-flutter`, the templates of the four consumers (`backend`, `mobile-app`, `parent-web`, `admin-web`). `ci-common`, `ci-openapi` and `ci-ansible` carry none. A repository copied from `ci-node` or `ci-flutter` that does not consume a client deletes the guards, the credential check, the token step and the `env:` of the install step: the credentials are not shared with it, so the check would fail.
 
 | Credential | Kind | Purpose |
 |---|---|---|
-| GitHub App "SchoolEngine CI" | Organization App | Repository permission `Contents: read` only, installed on `contracts` only |
-| `SCHOOLENGINE_CI_APP_CLIENT_ID` | Organization variable | Client ID of the App, not a secret |
-| `SCHOOLENGINE_CI_APP_PRIVATE_KEY` | Organization Actions secret | App key for ordinary runs |
-| `SCHOOLENGINE_CI_APP_PRIVATE_KEY` | Organization Dependabot secret | Second key of the same App, for the CI of Dependabot PRs: same name, other store |
+| GitHub App `contracts-reader-ssa` | Organization App | Repository permission `Contents: read` only, installed on `contracts` only |
+| `CONTRACTS_READER_APP_CLIENT_ID` | Organization variable | Client ID of the App, not a secret |
+| `CONTRACTS_READER_APP_PRIVATE_KEY` | Organization Actions secret | App key for ordinary runs |
+| `CONTRACTS_READER_APP_PRIVATE_KEY` | Organization Dependabot secret | Second key of the same App, for the CI of Dependabot PRs: same name, other store |
 
-The variable and both secrets are limited to the four consumers.
+The variable and both secrets are limited to the four consumers. The App `contracts-reader-ssa` replaces `schoolengine-ci`, deleted on 2026-11-16, and its variable and secrets replace `SCHOOLENGINE_CI_APP_CLIENT_ID` and `SCHOOLENGINE_CI_APP_PRIVATE_KEY` (decision of Céline, 2026-11-16, "Neutre + suffixe", .github#58).
 
-**Key custody** (decided by Céline on 2026-11-13, .github#11; this applies to the private keys of every organisation App, `schoolengine-release` included). A private key lives only in the project owner's password manager, plus an encrypted offline backup (an encrypted USB disk image), and in the GitHub secret that uses it (organisation Actions or Dependabot secret, or environment secret). No copy is kept in any repository, not even sops-encrypted in `infrastructure`. A lost key is not recovered, it is replaced: generate a new private key in the App settings, update every secret that holds it, check that one run mints a token, delete the old key in the App settings (that deletion is the revocation), then replace the password manager entry and the offline backup and destroy the old backup. A key that may have been exposed follows the same steps, with the old key deleted first when the exposure is confirmed (CI stays red until the secrets are updated), and the App's activity is checked for use of the old key.
+**Key custody** (decided by Céline on 2026-11-13, .github#11; this applies to the private keys of every organisation App, `contracts-release-ssa` included). A private key lives only in the project owner's password manager, plus an encrypted offline backup (an encrypted USB disk image), and in the GitHub secret that uses it (organisation Actions or Dependabot secret, or environment secret). No copy is kept in any repository, not even sops-encrypted in `infrastructure`. A lost key is not recovered, it is replaced: generate a new private key in the App settings, update every secret that holds it, check that one run mints a token, delete the old key in the App settings (that deletion is the revocation), then replace the password manager entry and the offline backup and destroy the old backup. A key that may have been exposed follows the same steps, with the old key deleted first when the exposure is confirmed (CI stays red until the secrets are updated), and the App's activity is checked for use of the old key.
 
 **In the job that installs dependencies** (`node`, `flutter`):
 
