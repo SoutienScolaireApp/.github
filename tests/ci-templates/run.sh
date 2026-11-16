@@ -201,7 +201,8 @@ if (cd "$work/pins" && bash ../pins.sh); then ok "ansible pins: the file is ther
 step flutter 'Filter the coverage report' "$flutter" | jq -r '.run' >"$work/filter.sh"
 step flutter 'Coverage floor' "$flutter" | jq -r '.run' >"$work/floor.sh"
 mkdir -p "$work/cov/coverage"
-# written.dart: 1 of 4 lines hit (25 %); every generated file fully hit.
+# written.dart: 1 of 4 lines hit (25 %); every generated file fully hit;
+# generated_helper.dart is hand-written (a name that only contains "generated").
 cat >"$work/cov/coverage/lcov.info" <<'LCOV'
 SF:lib/written.dart
 LF:4
@@ -219,10 +220,14 @@ SF:lib/generated/l10n.dart
 LF:50
 LH:50
 end_of_record
+SF:lib/generated_helper.dart
+LF:0
+LH:0
+end_of_record
 LCOV
 (cd "$work/cov" && bash ../filter.sh >/dev/null)
-check "coverage filter: generated files removed" "coverage filter kept: $(grep '^SF:' "$work/cov/coverage/lcov.filtered.info" | tr '\n' ' ')" \
-  test "$(grep '^SF:' "$work/cov/coverage/lcov.filtered.info")" == "SF:lib/written.dart"
+check "coverage filter: generated files removed, the others kept" "coverage filter kept: $(grep '^SF:' "$work/cov/coverage/lcov.filtered.info" | tr '\n' ' ')" \
+  test "$(grep '^SF:' "$work/cov/coverage/lcov.filtered.info" | tr '\n' ' ')" == "SF:lib/written.dart SF:lib/generated_helper.dart "
 if (cd "$work/cov" && COVERAGE_MIN=70 bash ../floor.sh >/dev/null 2>&1); then
   ko "coverage floor: 25 % of written code passes a floor of 70 % (generated files counted)"
 else ok "coverage floor: measured on the filtered report"; fi

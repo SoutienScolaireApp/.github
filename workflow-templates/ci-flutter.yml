@@ -470,7 +470,8 @@ jobs:
       # coverage/lcov.info): copy the script and the step if the app needs it.
 
       # Generated files (*.g.dart, *.freezed.dart, generated/) are filtered out
-      # of lcov.info: the floor measures written code only.
+      # of lcov.info: the floor measures written code only. The match is on
+      # the path, so review keeps hand-written code out of those names.
       # TODO(scaffold): add the excluded layers of the app to the SF: test
       # (mobile-app: || $0 ~ /^SF:lib\/presentation\//, ADR-001).
       - name: Filter the coverage report
