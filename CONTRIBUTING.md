@@ -37,7 +37,7 @@ GitHub shows this file in every repository that has no `CONTRIBUTING.md` of its 
 6. **CI:** where a repository runs the `Quality Gate` check (format, lint, types, tests, gitleaks, osv-scanner, contract), it must be green. A red CI is never bypassed: fix the cause, never the test or the threshold.
    - The `Gate integrity` check must be green too. A PR that changes the gate itself (removes a job, changes a common job, the gate, a workflow, a local action or the workflow-level settings of `ci.yml`, loosens the gitleaks configuration) is a **gate change**: its body has a `## Gate change` section with a justification of at least 20 letters or digits (HTML comments do not count). The double agent review (code and security) recorded on the PR is the approval. Details: [CI.md](CI.md#gate-integrity).
    - Every ignore (`osv-scanner.toml`, `.gitleaksignore`, `.gitleaks.toml` allowlist) carries a justification and an expiry date at most 180 days ahead ([CI.md](CI.md#ignore-files)).
-7. **Merge:** squash and merge only, and only with Céline's explicit approval. Nobody merges on their own initiative.
+7. **Merge:** squash and merge only, and only with Céline's explicit approval. Where `protect-develop` applies, the branch must be up to date with `develop` first (strict required status checks): use **Update branch** on the pull request, or rebase on `origin/develop`, then wait for the checks to pass again. On a Dependabot pull request, comment `@dependabot rebase` instead. Nobody merges on their own initiative.
 8. **Cleanup:** the branch is deleted on merge; remove the local branch and the worktree.
 
 ## Labels
