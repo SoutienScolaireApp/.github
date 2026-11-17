@@ -7,7 +7,7 @@ GitHub shows this file in every repository that has no `CONTRIBUTING.md` of its 
 ## Branches
 
 - `develop` is the default branch, the only long-lived branch and the starting point of every branch. There is no `main`.
-- In the code repositories, `develop` is protected by the organization ruleset `protect-develop`: pull request required, squash only, linear history, no force-push, no deletion, review threads resolved; the only bypass is a break-glass for organization owners, through a pull request (logged), see [rulesets/README.md](https://github.com/SoutienScolaireApp/.github/blob/develop/rulesets/README.md#break-glass).
+- In the code repositories and `.github`, `develop` is protected by the organization ruleset `protect-develop`: pull request required, squash only, linear history, no force-push, no deletion, review threads resolved, required checks `Quality Gate` and `Gate integrity` in strict mode (branch up to date with `develop`); the only bypass is a break-glass for organization owners, through a pull request (logged), see [rulesets/README.md](https://github.com/SoutienScolaireApp/.github/blob/develop/rulesets/README.md#break-glass).
 - Never commit directly to `develop`, not even a typo.
 
 ## Workflow
@@ -37,7 +37,7 @@ GitHub shows this file in every repository that has no `CONTRIBUTING.md` of its 
 6. **CI:** where a repository runs the `Quality Gate` check (format, lint, types, tests, gitleaks, osv-scanner, contract), it must be green. A red CI is never bypassed: fix the cause, never the test or the threshold.
    - The `Gate integrity` check must be green too. A PR that changes the gate itself (removes a job, changes a common job, the gate, a workflow, a local action or the workflow-level settings of `ci.yml`, loosens the gitleaks configuration) is a **gate change**: its body has a `## Gate change` section with a justification of at least 20 letters or digits (HTML comments do not count). The double agent review (code and security) recorded on the PR is the approval. Details: [CI.md](CI.md#gate-integrity).
    - Every ignore (`osv-scanner.toml`, `.gitleaksignore`, `.gitleaks.toml` allowlist) carries a justification and an expiry date at most 180 days ahead ([CI.md](CI.md#ignore-files)).
-7. **Merge:** squash and merge only, and only with Céline's explicit approval. Nobody merges on their own initiative.
+7. **Merge:** squash and merge only, and only with Céline's explicit approval. Where `protect-develop` applies, the branch must be up to date with `develop` first (strict required status checks): use **Update branch** on the pull request, or rebase on `origin/develop` and `git push --force-with-lease` the feature branch, then wait for the checks to be green again. On a Dependabot pull request, comment `@dependabot rebase` instead. Nobody merges on their own initiative.
 8. **Cleanup:** the branch is deleted on merge; remove the local branch and the worktree.
 
 ## Labels
