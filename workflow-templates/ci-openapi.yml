@@ -425,7 +425,7 @@ jobs:
 
       # Docs-only PR (CI.md, "Docs-only pull requests"): the steps below are
       # skipped and the job succeeds. Diffs the merge commit against its first
-      # parent (fetch-depth: 2); a rename counts as a deletion and an addition,
+      # parent (full history above); a rename counts as a deletion and an addition,
       # an empty or unreadable diff runs the job.
       - name: Detect a docs-only pull request
         id: changes
