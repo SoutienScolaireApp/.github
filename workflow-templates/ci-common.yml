@@ -11,10 +11,11 @@
 name: CI
 
 # No `edited` trigger by design: after editing the PR title or body, push a
-# commit or re-run the `PR title and linked issue` job.
+# commit or re-run the `PR title and linked issue` job. `ready_for_review`
+# runs the CI when a draft is marked ready (CI.md, "Drafts").
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -44,7 +45,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     permissions:
       contents: read
       pull-requests: read
@@ -109,7 +110,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout with history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -142,7 +143,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -171,7 +172,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -228,7 +229,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -284,7 +285,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     permissions:
       contents: read
     steps:
@@ -353,6 +354,17 @@ jobs:
     needs: [pr-conventions, gitleaks, actionlint, lint-yaml-markdown, osv-scanner, gate-drift]
     if: ${{ !cancelled() }}
     steps:
+      # On a draft every job above is skipped (their `if:`), which would pass
+      # here: a draft fails the gate instead (CI.md, "Drafts").
+      - name: Refuse a draft
+        env:
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          if [[ "$DRAFT" == "true" ]]; then
+            echo "::error::PR is a draft: mark it ready for review to run the CI"
+            exit 1
+          fi
+
       - name: Require every job to succeed
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}

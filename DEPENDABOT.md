@@ -25,9 +25,9 @@ The `github-actions` entry of `common.yml`, `node.yml` and `flutter.yml` lists `
 
 ## Shared settings
 
-- **Weekly**, Monday 06:00 Europe/Brussels.
+- **Monthly**, on the first day of the month at 06:00 Europe/Brussels (`day` applies to `weekly` only, so the templates omit it). Monthly since SoutienScolaireApp/.github#67, to save CI minutes: every version-update PR runs the whole CI.
 - **Cooldown of 7 days**: a newly published version waits a week before Dependabot proposes it, which keeps most compromised releases out. The cooldown applies to version updates only.
-- **Grouping**: minor and patch version updates of an ecosystem come in one PR per week; a major update gets its own PR.
+- **Grouping**: minor and patch version updates of an ecosystem come in one PR per month; a major update gets its own PR.
 - **Security updates are never delayed**: they are raised as soon as an alert exists, outside the schedule and the cooldown, and are not grouped (the groups apply to `version-updates` only). GitHub offers no security updates for the `docker` ecosystem: image vulnerabilities are a deferred control of ADR-014.
 - **Commit messages and PR titles** start with `chore(deps):` (or `chore(deps-dev):` for development dependencies), which passes the Conventional Commits check of the `Quality Gate` (see [CI.md](CI.md)).
 - **Label** `tech-debt`. The label must exist in the repository, otherwise Dependabot opens the PR without it.
@@ -43,7 +43,7 @@ Handled error whilst updating zod: update_not_possible
 
 The package named in the error is the fresh pin, not the one being updated, which is why every candidate of the run ends in `update_not_possible` (seen in SoutienScolaireApp/backend#63, after a manual security bump). The `minimum-release-age` of the repository `.npmrc` is not the cause: the value comes from the cooldown. Security updates run without this flag.
 
-After a manual bump to a fresh release this failure is expected and needs no fix: note the date the release turns 7 days old, then let the next Monday run open the PRs, or start "Check for updates" from Insights > Dependency graph > Dependabot. If that run still fails, read its log for another blocker. A pnpm `minimumReleaseAgeExclude` entry for the bumped package is not adopted: nothing here shows that Dependabot honours it.
+After a manual bump to a fresh release this failure is expected and needs no fix: note the date the release turns 7 days old, then let the next monthly run open the PRs, or start "Check for updates" from Insights > Dependency graph > Dependabot. If that run still fails, read its log for another blocker. A pnpm `minimumReleaseAgeExclude` entry for the bumped package is not adopted: nothing here shows that Dependabot honours it.
 
 ## Reviewing a Dependabot PR
 

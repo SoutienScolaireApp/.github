@@ -11,10 +11,11 @@
 name: CI
 
 # No `edited` trigger by design: after editing the PR title or body, push a
-# commit or re-run the `PR title and linked issue` job.
+# commit or re-run the `PR title and linked issue` job. `ready_for_review`
+# runs the CI when a draft is marked ready (CI.md, "Drafts").
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -51,7 +52,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     permissions:
       contents: read
       pull-requests: read
@@ -116,7 +117,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout with history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -149,7 +150,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -178,7 +179,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -235,7 +236,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -291,7 +292,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     permissions:
       contents: read
     steps:
@@ -353,14 +354,34 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, node]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
         with:
+          fetch-depth: 2
           persist-credentials: false
 
+      # Docs-only PR (CI.md, "Docs-only pull requests"): the steps below are
+      # skipped and the job succeeds. Diffs the merge commit against its first
+      # parent (fetch-depth: 2); a rename counts as a deletion and an addition,
+      # an empty or unreadable diff runs the job.
+      - name: Detect a docs-only pull request
+        id: changes
+        run: |
+          set -euo pipefail
+          code=false
+          n=0
+          while IFS= read -r -d '' f; do
+            n=$((n + 1))
+            [[ "$f" =~ ^([^/]+|docs/.+|\.github/.+)\.md$ ]] || code=true
+          done < <(git diff --no-renames --name-only -z HEAD^1 HEAD)
+          [[ "$n" -gt 0 ]] || code=true
+          [[ "$code" == true ]] || echo "::notice::Documentation only: the remaining steps of this job are skipped."
+          echo "code=$code" >>"$GITHUB_OUTPUT"
+
       - name: Install Spectral (pinned, sha256 verified)
+        if: steps.changes.outputs.code == 'true'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bin"
@@ -373,6 +394,7 @@ jobs:
       # Rule set: .spectral.yaml at the repository root, copied from
       # templates/openapi/.spectral.yaml (extends spectral:oas). Warnings block.
       - name: Lint the OpenAPI document
+        if: steps.changes.outputs.code == 'true'
         run: |
           set -euo pipefail
           if [[ ! -f .spectral.yaml ]]; then
@@ -388,7 +410,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, node]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     permissions:
       contents: read
       pull-requests: read
@@ -401,7 +423,26 @@ jobs:
           fetch-tags: true
           persist-credentials: false
 
+      # Docs-only PR (CI.md, "Docs-only pull requests"): the steps below are
+      # skipped and the job succeeds. Diffs the merge commit against its first
+      # parent (full history above); a rename counts as a deletion and an addition,
+      # an empty or unreadable diff runs the job.
+      - name: Detect a docs-only pull request
+        id: changes
+        run: |
+          set -euo pipefail
+          code=false
+          n=0
+          while IFS= read -r -d '' f; do
+            n=$((n + 1))
+            [[ "$f" =~ ^([^/]+|docs/.+|\.github/.+)\.md$ ]] || code=true
+          done < <(git diff --no-renames --name-only -z HEAD^1 HEAD)
+          [[ "$n" -gt 0 ]] || code=true
+          [[ "$code" == true ]] || echo "::notice::Documentation only: the remaining steps of this job are skipped."
+          echo "code=$code" >>"$GITHUB_OUTPUT"
+
       - name: Install oasdiff (pinned, sha256 verified)
+        if: steps.changes.outputs.code == 'true'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bin" && cd "$RUNNER_TEMP"
@@ -419,6 +460,7 @@ jobs:
       # A breaking change passes only with the `breaking-change-approved`
       # label (CONTRIBUTING.md). Adding the label needs a re-run of this job.
       - name: Compare with the baseline (latest v* tag, else the base branch)
+        if: steps.changes.outputs.code == 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GH_TOKEN: ${{ github.token }}
@@ -472,31 +514,55 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, node]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
         with:
+          fetch-depth: 2
           persist-credentials: false
 
+      # Docs-only PR (CI.md, "Docs-only pull requests"): the steps below are
+      # skipped and the job succeeds. Diffs the merge commit against its first
+      # parent (fetch-depth: 2); a rename counts as a deletion and an addition,
+      # an empty or unreadable diff runs the job.
+      - name: Detect a docs-only pull request
+        id: changes
+        run: |
+          set -euo pipefail
+          code=false
+          n=0
+          while IFS= read -r -d '' f; do
+            n=$((n + 1))
+            [[ "$f" =~ ^([^/]+|docs/.+|\.github/.+)\.md$ ]] || code=true
+          done < <(git diff --no-renames --name-only -z HEAD^1 HEAD)
+          [[ "$n" -gt 0 ]] || code=true
+          [[ "$code" == true ]] || echo "::notice::Documentation only: the remaining steps of this job are skipped."
+          echo "code=$code" >>"$GITHUB_OUTPUT"
+
       - name: Set up pnpm
+        if: steps.changes.outputs.code == 'true'
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # pnpm/action-setup@v6.1.0
 
       - name: Set up Node.js
+        if: steps.changes.outputs.code == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # actions/setup-node@v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
       - name: Install (frozen lockfile)
+        if: steps.changes.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
       # TODO(scaffold): `generate` regenerates the TypeScript and Dart clients
       # (ADR-013); add any toolchain it needs (Java, Dart) as steps above.
       - name: Regenerate the clients
+        if: steps.changes.outputs.code == 'true'
         run: pnpm run generate
 
       - name: Fail on drift
+        if: steps.changes.outputs.code == 'true'
         run: |
           set -euo pipefail
           if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
@@ -520,6 +586,17 @@ jobs:
     needs: [pr-conventions, gitleaks, actionlint, lint-yaml-markdown, osv-scanner, gate-drift, openapi-lint, oasdiff, generation-drift]
     if: ${{ !cancelled() }}
     steps:
+      # On a draft every job above is skipped (their `if:`), which would pass
+      # here: a draft fails the gate instead (CI.md, "Drafts").
+      - name: Refuse a draft
+        env:
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          if [[ "$DRAFT" == "true" ]]; then
+            echo "::error::PR is a draft: mark it ready for review to run the CI"
+            exit 1
+          fi
+
       - name: Require every job to succeed
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}

@@ -11,10 +11,11 @@
 name: CI
 
 # No `edited` trigger by design: after editing the PR title or body, push a
-# commit or re-run the `PR title and linked issue` job.
+# commit or re-run the `PR title and linked issue` job. `ready_for_review`
+# runs the CI when a draft is marked ready (CI.md, "Drafts").
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -47,7 +48,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     permissions:
       contents: read
       pull-requests: read
@@ -112,7 +113,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout with history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -145,7 +146,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -174,7 +175,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -231,7 +232,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
@@ -287,7 +288,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, <lane>]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     permissions:
       contents: read
     steps:
@@ -354,7 +355,7 @@ jobs:
     # Future: runs-on: [self-hosted, Linux, X64, node]
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     # ADR-013 Amendment 3, on every job that installs dependencies: any SSH
     # attempt fails closed (a missing rewrite cannot fall back to SSH), and a
     # URL that no rewrite matches fails fast instead of waiting for a prompt.
@@ -365,12 +366,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout@v7.0.1
         with:
+          fetch-depth: 2
           persist-credentials: false
 
+      # Docs-only PR (CI.md, "Docs-only pull requests"): the steps below are
+      # skipped and the job succeeds. Diffs the merge commit against its first
+      # parent (fetch-depth: 2); a rename counts as a deletion and an addition,
+      # an empty or unreadable diff runs the job.
+      - name: Detect a docs-only pull request
+        id: changes
+        run: |
+          set -euo pipefail
+          code=false
+          n=0
+          while IFS= read -r -d '' f; do
+            n=$((n + 1))
+            [[ "$f" =~ ^([^/]+|docs/.+|\.github/.+)\.md$ ]] || code=true
+          done < <(git diff --no-renames --name-only -z HEAD^1 HEAD)
+          [[ "$n" -gt 0 ]] || code=true
+          [[ "$code" == true ]] || echo "::notice::Documentation only: the remaining steps of this job are skipped."
+          echo "code=$code" >>"$GITHUB_OUTPUT"
+
       - name: Set up pnpm
+        if: steps.changes.outputs.code == 'true'
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # pnpm/action-setup@v6.1.0
 
       - name: Set up Node.js
+        if: steps.changes.outputs.code == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # actions/setup-node@v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -396,6 +418,7 @@ jobs:
       # SSH spelling Dependabot records, same commit, nothing else (CI.md,
       # "The contracts lockfile guard"). Copied from templates/contracts-lock/.
       - name: Contracts lockfile guard
+        if: steps.changes.outputs.code == 'true'
         run: |
           set -euo pipefail
           guard=.github/scripts/check-contracts-lock.sh
@@ -407,6 +430,7 @@ jobs:
 
       # The private key never enters a run step: only whether it is set.
       - name: Require the contracts-reader-ssa App credentials
+        if: steps.changes.outputs.code == 'true'
         env:
           APP_CLIENT_ID: ${{ vars.CONTRACTS_READER_APP_CLIENT_ID }}
           HAS_PRIVATE_KEY: ${{ secrets.CONTRACTS_READER_APP_PRIVATE_KEY != '' }}
@@ -426,6 +450,7 @@ jobs:
       # Short-lived token (one hour at most), contents: read on contracts only,
       # revoked by the action's post step at job end.
       - name: Mint a read-only token for SoutienScolaireApp/contracts
+        if: steps.changes.outputs.code == 'true'
         id: contracts-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # actions/create-github-app-token@v3.3.0
         with:
@@ -441,6 +466,7 @@ jobs:
       # token, and SSH is never a transport (GIT_SSH_COMMAND above).
       # --ignore-scripts: no lifecycle script runs while the token is reachable.
       - name: Install (frozen lockfile, no scripts)
+        if: steps.changes.outputs.code == 'true'
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: url.https://x-access-token:${{ steps.contracts-token.outputs.token }}@github.com/SoutienScolaireApp/contracts.git.insteadOf
@@ -453,20 +479,25 @@ jobs:
       # .prettierignore keeps *.md, *.yml and *.yaml out of it: yamllint and
       # markdownlint-cli2 govern them (CI.md, "Formatting").
       - name: Format check
+        if: steps.changes.outputs.code == 'true'
         run: pnpm run format:check
 
       - name: Lint
+        if: steps.changes.outputs.code == 'true'
         run: pnpm run lint
 
       - name: Typecheck
+        if: steps.changes.outputs.code == 'true'
         run: pnpm run typecheck
 
       # The test runner must write coverage/coverage-summary.json (Vitest:
       # coverage.reporter includes 'json-summary').
       - name: Test with coverage
+        if: steps.changes.outputs.code == 'true'
         run: pnpm run test:coverage
 
       - name: Coverage floor
+        if: steps.changes.outputs.code == 'true'
         run: |
           set -euo pipefail
           summary=coverage/coverage-summary.json
@@ -482,6 +513,7 @@ jobs:
           fi
 
       - name: Build
+        if: steps.changes.outputs.code == 'true'
         run: pnpm run build
 
   # A required check. Its `if:` is exactly `!cancelled()` and nothing
@@ -497,6 +529,17 @@ jobs:
     needs: [pr-conventions, gitleaks, actionlint, lint-yaml-markdown, osv-scanner, gate-drift, node]
     if: ${{ !cancelled() }}
     steps:
+      # On a draft every job above is skipped (their `if:`), which would pass
+      # here: a draft fails the gate instead (CI.md, "Drafts").
+      - name: Refuse a draft
+        env:
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          if [[ "$DRAFT" == "true" ]]; then
+            echo "::error::PR is a draft: mark it ready for review to run the CI"
+            exit 1
+          fi
+
       - name: Require every job to succeed
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
