@@ -44,10 +44,10 @@ The templates are only offered from the default branch (`develop`) of this repos
 ## The shape every `ci.yml` keeps
 
 - `name: CI`.
-- `on: pull_request` with types `[opened, synchronize, reopened]` only. No `edited`: **after editing the PR title or body, push a commit or re-run the `PR title and linked issue` job** (it reads the title and body live from the API, so a re-run sees the new text). Same for a label added after the last run (`breaking-change-approved` in `ci-openapi`). No `workflow_dispatch`: the fork guard would skip every job and the gate would fail.
+- `on: pull_request` with types `[opened, synchronize, reopened, ready_for_review]` only (`ready_for_review`: see [Drafts](#drafts)). No `edited`: **after editing the PR title or body, push a commit or re-run the `PR title and linked issue` job** (it reads the title and body live from the API, so a re-run sees the new text). Same for a label added after the last run (`breaking-change-approved` in `ci-openapi`). No `workflow_dispatch`: the fork guard would skip every job and the gate would fail.
 - `permissions: contents: read` at workflow level. A job that needs more declares it at job level, minimal (`pull-requests: read` to read the PR title, body and labels). The organisation enforces a read-only default `GITHUB_TOKEN`.
 - `concurrency` group `${{ github.workflow }}-${{ github.head_ref || github.ref_name }}` with `cancel-in-progress: true`.
-- Fork guard on every job except the gate: `if: github.event.pull_request.head.repo.full_name == github.repository`. A fork PR skips every job and fails the gate: it never runs code with the repository's token.
+- Fork and draft guard on every job except the gate: `if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft`. A fork PR skips every job and fails the gate: it never runs code with the repository's token. A draft skips every job too: see [Drafts](#drafts).
 - `timeout-minutes` on every job.
 - `actions/checkout` always with `persist-credentials: false`.
 - Third-party actions pinned by full commit SHA with a `# owner/action@vX.Y.Z` comment (checked in review and by `tests/ci-templates/run.sh` for the templates; and enforced by the organisation setting `sha_pinning_required` since 2026-11-01, see [Allowed actions](#allowed-actions)). No wrapper action for the security tools.
@@ -65,8 +65,22 @@ Rules, all learned on TheOpenMusicBox:
 - **Its `if:` is exactly `${{ !cancelled() }}`, nothing else.** A skipped required check counts as **passing**: any extra condition that can be false (a fork guard, an event test) turns a red PR into a mergeable one. `always()` is not used either: it keeps the job alive on a cancelled run.
 - It `needs:` **every other job** and fails unless every needed result is `success`. A `skipped` or `cancelled` job fails the gate.
 - A cancelled run leaves the gate `cancelled`, which blocks the merge: re-run the workflow.
-- **Adding a job**: add it under `jobs:` with the fork guard and a `timeout-minutes`, then add its id to the `needs:` list of `quality-gate`. Nothing else: the gate reads the results of `needs` generically. A job missing from `needs:` does not block anything.
+- **Adding a job**: add it under `jobs:` with the fork and draft guard and a `timeout-minutes`, then add its id to the `needs:` list of `quality-gate`. Nothing else: the gate reads the results of `needs` generically. A job missing from `needs:` does not block anything.
 - Removing a job: remove it from `needs:` in the same PR. It is a gate change ([Gate integrity](#gate-integrity)).
+
+Every job is billed per started minute (a 48 s run of five jobs bills about 8 minutes), so two rules keep runs that check nothing new from costing minutes (SoutienScolaireApp/.github#67).
+
+### Drafts
+
+Every job except `quality-gate` carries `!github.event.pull_request.draft` in its `if:`, so pushing to a draft runs no job. The gate keeps `if: ${{ !cancelled() }}` and its first step, `Refuse a draft`, fails with "PR is a draft: mark it ready for review to run the CI": without it the gate would see only skipped jobs and still fail, but with an unclear message. `ready_for_review` is in `on.pull_request.types`, so marking the PR ready runs the whole CI on its current state. A draft therefore can never merge on a green gate.
+
+`Gate integrity` has no draft condition and runs on every draft push: it is a required check, and a skipped required check passes. Its triggers have no `ready_for_review`, so a result skipped on a draft would stay green on that commit once the PR is marked ready. Its workflow (`gate-integrity.yml`) and script are never changed to save minutes.
+
+### Docs-only pull requests
+
+Each heavy job (`node`, `flutter`, `ansible`, `openapi-lint`, `oasdiff`, `generation-drift`, and in a repository the jobs it adds on the same model, such as an integration or image job) checks out the merge commit with its first parent (`fetch-depth: 2`) and starts with `Detect a docs-only pull request`. That step lists the files of the PR with `git diff --no-renames --name-only -z HEAD^1 HEAD` (a rename counts as a deletion and an addition) and sets `code=false` only when every file is Markdown at the root, under `docs/` or under `.github/`. The later steps carry `if: steps.changes.outputs.code == 'true'`, so on such a PR they are skipped and the job ends in `success`: the gate logic is unchanged. An empty or unreadable diff runs the job.
+
+The list holds only files that no heavy job reads: Markdown is checked by `lint-yaml-markdown` (a common job, never skipped) and kept out of Prettier by `.prettierignore` (see [Formatting](#formatting)); Markdown inside `openapi/`, `clients/`, `lib/`, `src/` or any other directory runs the job. A repository whose heavy job reads one of those files (a docs site built by `pnpm run build`, for instance) removes the step from that job. File names are read NUL separated in the script, never through a `${{ }}` expression. The token guard `No installation token in tracked files` keeps running on a docs-only PR, since it reads every tracked file, Markdown included.
 
 ## Gate integrity
 

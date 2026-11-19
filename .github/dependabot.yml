@@ -14,8 +14,7 @@ updates:
       - "/"
       - "/workflow-templates"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Europe/Brussels"
     # A new release waits 7 days before a version-update PR (supply-chain
@@ -28,7 +27,7 @@ updates:
       include: "scope"
     labels:
       - "tech-debt"
-    # Minor and patch version updates in one weekly PR; a major gets its own
+    # Minor and patch version updates in one monthly PR; a major gets its own
     # PR, still across both directories. Security updates are never grouped,
     # so they are never held back.
     groups:
@@ -51,8 +50,7 @@ updates:
       - "/templates/lint"
       - "/.github/lint"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Europe/Brussels"
     cooldown:
@@ -76,8 +74,7 @@ updates:
       - "/templates/lint"
       - "/.github/lint"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Europe/Brussels"
     cooldown:
@@ -97,8 +94,7 @@ updates:
   - package-ecosystem: "pip"
     directory: "/templates/ansible"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Europe/Brussels"
     cooldown:

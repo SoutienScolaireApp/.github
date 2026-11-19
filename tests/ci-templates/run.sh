@@ -10,7 +10,10 @@
 # 3. the contracts read of ci-flutter: same steps as ci-node, step order, token
 #    scope, and the two guards run on fixtures;
 # 4. the pre-check of the Ansible toolchain pins of ci-ansible;
-# 5. the coverage filter and floor of ci-flutter, run on an lcov fixture.
+# 5. the coverage filter and floor of ci-flutter, run on an lcov fixture;
+# 6. drafts and docs-only PRs (SoutienScolaireApp/.github#67): the trigger,
+#    the draft guard of every job but the gate, the gate untouched, Gate
+#    integrity without any draft rule, and the docs-only step run on fixtures.
 #
 # Usage: tests/ci-templates/run.sh   (needs yq, jq)
 set -euo pipefail
@@ -233,5 +236,64 @@ if (cd "$work/cov" && COVERAGE_MIN=70 bash ../floor.sh >/dev/null 2>&1); then
 else ok "coverage floor: measured on the filtered report"; fi
 if (cd "$work/cov" && COVERAGE_MIN=25 bash ../floor.sh >/dev/null 2>&1); then ok "coverage floor: 25 % passes a floor of 25 %"
 else ko "coverage floor: 25 % fails a floor of 25 %"; fi
+
+# --- 6. drafts and docs-only PRs ----------------------------------------------
+for f in workflow-templates/ci-common.yml "${others[@]}"; do
+  check "ready_for_review triggers $f" "$f: on.pull_request.types lacks ready_for_review" \
+    test "$(yq '.on.pull_request.types | contains(["ready_for_review"])' "$f")" == true
+  # shellcheck disable=SC2016  # the literal expression
+  check "quality-gate if of $f unchanged" "$f: the if of quality-gate is not exactly \${{ !cancelled() }}" \
+    test "$(yq '.jobs."quality-gate".if' "$f")" == '${{ !cancelled() }}'
+  check "quality-gate of $f refuses a draft first" "$f: the first step of quality-gate is not 'Refuse a draft'" \
+    test "$(yq '.jobs."quality-gate".steps[0].name' "$f")" == 'Refuse a draft'
+  while IFS= read -r job; do
+    check "draft guard on $job of $f" "$f: job $job has no !github.event.pull_request.draft in its if" \
+      grep -qF '&& !github.event.pull_request.draft' <<<"$(yq ".jobs.\"$job\".if" "$f")"
+  done < <(yq '.jobs | keys | .[] | select(. != "quality-gate")' "$f")
+done
+# Gate integrity is never skipped: no draft rule, and the copy is the template.
+check "gate-integrity.yml has no draft rule" "gate-integrity.yml mentions draft or ready_for_review" \
+  bash -c '! grep -qiE "draft|ready_for_review" workflow-templates/gate-integrity.yml'
+check "gate-integrity.yml is the template" ".github/workflows/gate-integrity.yml differs from the template" \
+  cmp -s workflow-templates/gate-integrity.yml .github/workflows/gate-integrity.yml
+
+detect='Detect a docs-only pull request'
+step node "$detect" "$node" | jq -r '.run' >"$work/detect.sh"
+[[ -s "$work/detect.sh" ]] || ko "step '$detect' not found in $node"
+for jf in flutter:"$flutter" ansible:workflow-templates/ci-ansible.yml openapi-lint:workflow-templates/ci-openapi.yml \
+  oasdiff:workflow-templates/ci-openapi.yml generation-drift:workflow-templates/ci-openapi.yml node:"$node"; do
+  job=${jf%%:*} f=${jf#*:}
+  check "docs-only step of $job is the one of node" "docs-only step of $job ($f) differs from node" \
+    test "$(step "\"$job\"" "$detect" "$f" | jq -c .)" == "$(step node "$detect" "$node" | jq -c .)"
+  # Every step after the detection is skipped on docs only, but the token guard.
+  bad=$(yq ".jobs.\"$job\".steps | (to_entries | map(select(.value.name == \"$detect\")) | .[0].key) as \$d
+    | to_entries[] | select(.key > \$d and .value.name != \"No installation token in tracked files\"
+      and .value.if != \"steps.changes.outputs.code == 'true'\") | .value.name" "$f")
+  check "steps of $job after the docs-only step are gated" "$f job $job: not gated by the docs-only step: $bad" test -z "$bad"
+  check "checkout of $job reads the first parent" "$f job $job: checkout has no fetch-depth 2 or 0" \
+    grep -qxE '[02]' <<<"$(yq ".jobs.\"$job\".steps[0].with.\"fetch-depth\"" "$f")"
+done
+
+docs() {  # docs <want code> <label> <commands that change $work/d>
+  local want="$1" label="$2"; shift 2
+  rm -rf "$work/d" && git init -q "$work/d"
+  mkdir -p "$work/d/src" && echo a >"$work/d/src/a.ts" && echo r >"$work/d/README.md"
+  git -C "$work/d" add -A && git -C "$work/d" -c user.name=t -c user.email=t@t commit -qm base
+  (cd "$work/d" && eval "$1")
+  git -C "$work/d" add -A && git -C "$work/d" -c user.name=t -c user.email=t@t commit -q --allow-empty -m pr
+  : >"$work/out"
+  (cd "$work/d" && GITHUB_OUTPUT="$work/out" bash "$work/detect.sh" >/dev/null)
+  check "docs-only: $label" "docs-only: $label (got '$(cat "$work/out")', want code=$want)" \
+    test "$(cat "$work/out")" == "code=$want"
+}
+docs false "root Markdown" 'echo x >>README.md'
+docs false "docs/ and .github/ Markdown" 'mkdir -p docs/a .github && echo x >docs/a/b.md && echo x >.github/pull_request_template.md'
+docs true "Markdown under src/" 'echo x >src/notes.md'
+docs true "non-Markdown under docs/" 'mkdir docs && echo x >docs/site.ts'
+docs true "Markdown and code" 'echo x >>README.md && echo x >>src/a.ts'
+docs true "code renamed to Markdown" 'mkdir docs && git mv src/a.ts docs/a.md'
+docs true "code deleted" 'git rm -q src/a.ts'
+docs true "empty diff" ':'
+docs true "upper-case extension" 'echo x >NOTES.MD'
 
 exit "$fail"

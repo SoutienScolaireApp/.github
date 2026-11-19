@@ -10,8 +10,7 @@ updates:
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Europe/Brussels"
     # A new release waits 7 days before a version-update PR (supply-chain
@@ -24,7 +23,7 @@ updates:
       include: "scope"
     labels:
       - "tech-debt"
-    # Minor and patch version updates in one weekly PR; majors stay separate.
+    # Minor and patch version updates in one monthly PR; majors stay separate.
     # Security updates are never grouped, so they are never held back.
     groups:
       docker-minor-and-patch:
