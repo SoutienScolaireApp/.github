@@ -440,6 +440,99 @@ EOF
 )"
 rm -rf "$base/.github/actions"
 
+echo "== The merged checks job (.github#68)"
+# The six common jobs of ci-node merged into `checks`: one checkout with full
+# history, then their other steps in order, each under `if: ${{ !cancelled() }}`.
+merge='.jobs.checks = {"name": "Common checks", "runs-on": "ubuntu-latest", "timeout-minutes": 15,
+    "if": .jobs.gitleaks.if, "permissions": {"contents": "read", "pull-requests": "read"},
+    "steps": ([.jobs.gitleaks.steps[0]] + [(.jobs.pr-conventions, .jobs.gitleaks, .jobs.actionlint,
+      .jobs.lint-yaml-markdown, .jobs.osv-scanner, .jobs.gate-drift) | .steps[]
+      | select((.uses // "") | test("^actions/checkout@") | not)])}
+  | (.jobs.checks.steps[] | select((.uses // "") | test("^actions/checkout@") | not)).if = "${{ !cancelled() }}"
+  | del(.jobs.pr-conventions, .jobs.gitleaks, .jobs.actionlint, .jobs.lint-yaml-markdown, .jobs.osv-scanner, .jobs.gate-drift)
+  | .jobs.quality-gate.needs = ["checks", "node"]'
+merged_base="$work/merged-base"
+tree "$merged_base" "$templates/ci-node.yml"
+yq -i "$merge" "$merged_base/.github/workflows/ci.yml"
+merged_head() {
+  tree "$work/head" "$templates/ci-node.yml"
+  yq -i "$merge | $1" "$work/head/.github/workflows/ci.yml"
+  echo "$work/head"
+}
+check_merged() { "$script" check "$merged_base" "$1"; }
+expect 0 "a merged checks job against itself" feat_pr check_merged "$(merged_head '.')"
+expect 0 "Dependabot: an action SHA bumped in checks" dependabot_pr check_merged \
+  "$(merged_head "(.jobs.checks.steps[0].uses) = \"actions/checkout@$sha_a\"")"
+gate_change_case "the six common jobs merged into checks" "$(merged_head '.')"
+grep -q 'changed in the merge' "$work/out.txt" && fail "a faithful merge reported as changing the steps"
+expect 1 "the merge rewrites a step, no justification" feat_pr check \
+  "$(merged_head '.jobs.checks.steps[3].run = "true"')"
+grep -q 'changed in the merge' "$work/out.txt" || fail "a step rewritten in the merge is not reported"
+gate_change_case "a step of checks rewritten" "$(merged_head '.jobs.checks.steps[3].run = "true"')"
+expect 1 "checks split back into the common jobs, no justification" feat_pr "$script" check "$merged_base" "$base"
+expect 0 "checks split back into the common jobs, justified" justified_pr "$script" check "$merged_base" "$base"
+# merged_hard <label> <yq change> [<message the refusal must hold>]
+merged_hard() {
+  expect 1 "$1" justified_pr check_merged "$(merged_head "$2")"
+  grep -q -- "${3:-Job 'checks' of}" "$work/out.txt" || fail "$1: refused for another reason"
+}
+merged_hard "checks next to a common job kept (mixed shape)" \
+  '.jobs.gitleaks = {"runs-on": "ubuntu-latest", "steps": [{"run": "true"}]} | .jobs.quality-gate.needs += ["gitleaks"]' "both the job"
+merged_hard "checks removed with no common job back" 'del(.jobs.checks) | .jobs.quality-gate.needs -= ["checks"]' "Mandatory job"
+merged_hard "a common step missing from checks (markdownlint)" 'del(.jobs.checks.steps[] | select(.name == "markdownlint"))'
+merged_hard "a common step renamed in checks" '(.jobs.checks.steps[] | select(.name == "yamllint") | .name) = "YAML"'
+merged_hard "a step of checks without if (skipped after a failure)" 'del(.jobs.checks.steps[2].if)'
+merged_hard "a step of checks under always()" '.jobs.checks.steps[2].if = "${{ always() }}"'
+merged_hard "a step of checks under a false condition" '.jobs.checks.steps[2].if = "${{ !cancelled() && false }}"'
+merged_hard "the checkout of checks shallow" '.jobs.checks.steps[0].with.fetch-depth = 1'
+merged_hard "the checkout of checks on another ref" '.jobs.checks.steps[0].with.ref = "develop"'
+merged_hard "the checkout of checks not first" '.jobs.checks.steps |= (.[1:] + [.[0]])'
+merged_hard "a second checkout in checks" \
+  '.jobs.checks.steps += [{"uses": "actions/checkout@'"$sha_a"'", "if": "${{ !cancelled() }}"}]'
+merged_hard "continue-on-error on a step of checks" '.jobs.checks.steps[4].continue-on-error = true' "continue-on-error is forbidden"
+merged_hard "checks out of the gate" '.jobs.quality-gate.needs -= ["checks"]' "Not in the 'needs:'"
+
+echo "== The docs-only step of the heavy jobs (.github#68)"
+docs_hard() {
+  expect 1 "$1" justified_pr check "$(head_of "$2")"
+  grep -q 'docs-only detection' "$work/out.txt" || fail "$1: refused for another reason"
+}
+docs_hard "docs-only step forced to code=false" '.jobs.node.steps[1].run = "echo code=false >>\"$GITHUB_OUTPUT\"\n"'
+docs_hard "docs-only pattern widened (src/ counts as docs)" '.jobs.node.steps[1].run |= sub("docs/"; "src/")'
+docs_hard "docs-only pattern widened (any file)" '.jobs.node.steps[1].run |= sub("\\\\.md\\$"; "")'
+docs_hard "docs-only diff on renames" '.jobs.node.steps[1].run |= sub("--no-renames "; "")'
+docs_hard "docs-only step under an if" '.jobs.node.steps[1].if = "false"'
+docs_hard "docs-only step with an env" '.jobs.node.steps[1].env = {"GIT_DIR": "/tmp"}'
+docs_hard "docs-only step removed, steps still gated" 'del(.jobs.node.steps[1])'
+docs_hard "docs-only step renamed id, steps gated on it" '.jobs.node.steps[1].id = "Changes2"'
+docs_hard "a second step with id changes" '.jobs.node.steps += [{"id": "changes", "run": "echo code=false >>\"$GITHUB_OUTPUT\""}]'
+docs_hard "a step inserted before the detection" \
+  '.jobs.node.steps |= [.[0], {"run": "git commit --allow-empty -m x"}] + .[1:]'
+docs_hard "checkout of another ref before the detection" '.jobs.node.steps[0].with.ref = "develop"'
+docs_hard "checkout too shallow for HEAD^1" '.jobs.node.steps[0].with.fetch-depth = 1'
+docs_hard "a gated step negated" '.jobs.node.steps[2].if = "steps.changes.outputs.code != '"'true'"'"'
+docs_hard "a gated step on code == false" '.jobs.node.steps[2].if = "steps.changes.outputs.code == '"'false'"'"'
+docs_hard "a gated step negated around a conjunction" \
+  '.jobs.node.steps[2].if = "!(steps.changes.outputs.code == '"'true'"' && true)"'
+docs_hard "a gated step with ||" \
+  '.jobs.node.steps[2].if = "steps.changes.outputs.code == '"'true'"' && false || false"'
+docs_hard "a gated step in bracket syntax" '.jobs.node.steps[2].if = "steps['"'changes'"'].outputs.code == '"'false'"'"'
+docs_hard "a gated step in upper case" '.jobs.node.steps[2].if = "STEPS.CHANGES.outputs.code == '"'false'"'"'
+docs_hard "a heavy job with BASH_ENV" '.jobs.node.env.BASH_ENV = "./x.sh"'
+docs_hard "a heavy job with GIT_DIR" '.jobs.node.env.GIT_DIR = "/tmp/x"'
+docs_hard "a heavy job with PATH" '.jobs.node.env.PATH = "./bin"'
+docs_hard "a heavy job in a container" '.jobs.node.container = "alpine:3"'
+expect 0 "a gated step joined with always()" feat_pr check \
+  "$(head_of '.jobs.node.steps[2].if = "always() && steps.changes.outputs.code == '"'true'"'"')"
+expect 0 "a gated step joined with another step output" feat_pr check \
+  "$(head_of '.jobs.node.steps[2].if = "steps.changes.outputs.code == '"'true'"' && steps.x.outputs.y == '"'1'"'"')"
+expect 0 "docs-only step and its gating removed (the job always runs)" feat_pr check \
+  "$(head_of 'del(.jobs.node.steps[1]) | del(.jobs.node.steps[].if)')"
+expect 0 "a new heavy job with the template detection" feat_pr check \
+  "$(head_of '.jobs.extra = {"runs-on": "ubuntu-latest", "steps": [.jobs.node.steps[0], .jobs.node.steps[1], {"if": .jobs.node.steps[2].if, "run": "true"}]} | .jobs.quality-gate.needs += ["extra"]')"
+docs_hard "the merged checks with a heavy job forcing code=false" \
+  "$merge"' | .jobs.node.steps[1].run = "echo code=false >>\"$GITHUB_OUTPUT\"\n"'
+
 echo "== The Gate change justification"
 removed=$(head_of 'del(.jobs.node) | .jobs.quality-gate.needs -= ["node"]')
 expect 0 "a justification of 20 letters or more" justified_pr check "$removed"

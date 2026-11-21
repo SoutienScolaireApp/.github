@@ -32,6 +32,38 @@
 set -euo pipefail
 
 readonly COMMON_JOBS=(pr-conventions gitleaks actionlint lint-yaml-markdown osv-scanner gate-drift)
+COMMON_JSON=$(printf '%s\n' "${COMMON_JOBS[@]}" | jq -R . | jq -cs .)
+readonly COMMON_JSON
+# The merged shape (SoutienScolaireApp/.github#68): one `checks` job instead of
+# the six common jobs, one checkout, then their steps in the order of
+# COMMON_JOBS, each step under CHECKS_IF so it runs after an earlier failure.
+readonly CHECKS_JOB="checks"
+# shellcheck disable=SC2016  # a literal GitHub expression, not a shell one
+readonly CHECKS_IF='${{ !cancelled() }}'
+readonly CHECKS_STEPS='["Check the Conventional Commits title and the closing keyword",
+  "Install gitleaks (pinned, sha256 verified)", "Scan the commits of the PR",
+  "Install actionlint (pinned, sha256 verified)", "Lint the workflows",
+  "Require the lint configuration files", "Set up Python", "Set up Node.js", "yamllint", "markdownlint",
+  "Install osv-scanner (pinned, sha256 verified)", "Scan the committed lockfiles",
+  "Compare the Gate integrity copies with the public source"]'
+# The docs-only step of the heavy jobs (CI.md, "Docs-only pull requests"),
+# byte for byte as in workflow-templates/ci-*.yml.
+readonly DOCS_ONLY_NAME="Detect a docs-only pull request"
+readonly DOCS_ONLY_COND="steps.changes.outputs.code == 'true'"
+DOCS_ONLY_RUN=$(cat <<'EOF'
+set -euo pipefail
+code=false
+n=0
+while IFS= read -r -d '' f; do
+  n=$((n + 1))
+  [[ "$f" =~ ^([^/]+|docs/.+|\.github/.+)\.md$ ]] || code=true
+done < <(git diff --no-renames --name-only -z HEAD^1 HEAD)
+[[ "$n" -gt 0 ]] || code=true
+[[ "$code" == true ]] || echo "::notice::Documentation only: the remaining steps of this job are skipped."
+echo "code=$code" >>"$GITHUB_OUTPUT"
+EOF
+)
+readonly DOCS_ONLY_RUN="$DOCS_ONLY_RUN"$'\n'
 readonly GATE_JOB="quality-gate"
 readonly GATE_NAME="Quality Gate"
 # shellcheck disable=SC2016  # a literal GitHub expression, not a shell one
@@ -187,6 +219,83 @@ gate_job() {
 
 has_job() { jq -e --arg job "$2" '.jobs | has($job)' <<<"$1" >/dev/null; }
 
+# legacy (the six common jobs), merged (`checks`, none of the six), mixed
+# (`checks` and some of them) or partial (some of them, no `checks`).
+ci_shape() {
+  jq -r --arg checks "$CHECKS_JOB" --argjson common "$COMMON_JSON" '
+    (.jobs // {}) as $j | ([$common[] | select(. as $c | $j | has($c))] | length) as $n
+    | if $j | has($checks) then (if $n == 0 then "merged" else "mixed" end)
+      elif $n == ($common | length) then "legacy" else "partial" end' <<<"$1"
+}
+
+# The steps of the common checks, checkouts and `if:` left out, in the order
+# of COMMON_JOBS: compares the six jobs of the base with a merged `checks`.
+common_steps() {
+  normalized "$1" | jq -S --arg checks "$CHECKS_JOB" --argjson common "$COMMON_JSON" '
+    [(if .jobs | has($checks) then .jobs[$checks].steps else [$common[] as $c | .jobs[$c].steps // [] | .[]] end)[]
+     | select(.uses // "" | tostring | test("^actions/checkout@") | not) | del(.if)]'
+}
+
+# The merged `checks` job: one pinned checkout first (full history, for the
+# gitleaks range and gate-drift's HEAD^1), no other one, every later step
+# under CHECKS_IF, and every step of the six common jobs, by name. Their
+# content is compared with the base branch like any common job.
+check_checks_job() {
+  local finding
+  while IFS= read -r finding; do
+    hard_error "Job '$CHECKS_JOB' of $CI_FILE: $finding."
+  done < <(jq -r --arg job "$CHECKS_JOB" --arg if "$CHECKS_IF" --argjson names "$CHECKS_STEPS" '
+    def checkout: (.uses // "" | tostring | test("^actions/checkout@"));
+    (.jobs[$job].steps // []) as $s
+    | (if ($s[0] // {} | checkout and (.uses | test("@[0-9a-f]{40}$")) and ((keys - ["name", "uses", "with"]) == [])
+           and .with == {"fetch-depth": 0, "persist-credentials": false}) | not
+       then "its first step must be actions/checkout pinned by SHA, with only fetch-depth: 0 and persist-credentials: false"
+       else empty end),
+      ($s[1:] | to_entries[] | select(.value | checkout) | "a second checkout (step \(.key + 2))"),
+      ($s[1:] | to_entries[] | select(.value.if != $if)
+       | "step \(.key + 2) (\(.value.name // "unnamed" | tojson)) needs exactly if: \($if), so a failure never skips it"),
+      ($names - [$s[].name] | .[] | "step \(tojson) is missing")' <<<"$1")
+}
+
+# Every job but the common ones and the gate that has the docs-only step, or
+# refers to it: the step is the template one (so no PR can force code=false or
+# widen the pattern), right after a pinned checkout of the merge commit, and a
+# step that refers to it runs at least whenever code is 'true'.
+check_docs_only() {
+  local finding
+  while IFS= read -r finding; do
+    hard_error "$CI_FILE, docs-only detection: $finding."
+  done < <(jq -r --argjson common "$COMMON_JSON" --arg checks "$CHECKS_JOB" --arg gate "$GATE_JOB" \
+      --arg name "$DOCS_ONLY_NAME" --arg run "$DOCS_ONLY_RUN" --arg cond "$DOCS_ONLY_COND" '
+    # A reference to the step `changes` in any syntax: contexts ignore case.
+    def refers: tostring | test("steps\\s*(\\.|\\[)\\s*[\"'"'"']?changes([^a-z0-9_-]|$)"; "i");
+    def balanced: reduce (split("")[] | select(. == "(" or . == ")")) as $c (0;
+      if . < 0 then . elif $c == "(" then . + 1 else . - 1 end) == 0;
+    # Only `<cond> && <terms>`: a conjunction never runs a step when <cond> is false.
+    def narrows: tostring | (contains("||") | not)
+      and ([splits("&&") | gsub("^\\s+|\\s+$"; "")] as $t
+           | ($t | index($cond)) != null and all($t[]; balanced and (. == $cond or (refers | not))));
+    def checkout_ok: (.uses // "" | tostring | test("^actions/checkout@[0-9a-f]{40}$"))
+      and ((keys - ["name", "uses", "with"]) == [])
+      and ((.with // {} | keys) - ["fetch-depth", "fetch-tags", "persist-credentials"] == [])
+      and .with["persist-credentials"] == false and (.with["fetch-depth"] | IN(0, 2));
+    .jobs // {} | to_entries[]
+    | select(.key as $k | ($common + [$checks, $gate]) | index($k) | not)
+    | .key as $job | (.value.steps // []) as $s
+    | select(any($s[]; (.id // "" | tostring | ascii_downcase) == "changes" or .name == $name or (.if // "" | refers)))
+    | (if ($s | map(select((.id // "" | tostring | ascii_downcase) == "changes" or .name == $name)) | length) != 1
+       then "job \($job) must have exactly one step with id changes or named \($name | tojson)" else empty end),
+      (if $s[1] != {name: $name, id: "changes", run: $run}
+       then "the second step of job \($job) must be the template step \($name | tojson), unchanged (name, id and run only)" else empty end),
+      (if ($s[0] // {} | checkout_ok) | not
+       then "the first step of job \($job) must be actions/checkout pinned by SHA, fetch-depth 0 or 2, persist-credentials: false, no other input" else empty end),
+      ($s | to_entries[] | select(.value.if // "" | refers) | select(.key < 2 or (.value.if | narrows | not))
+       | "step \(.key + 1) of job \($job): an if: that refers to the docs-only step must be \($cond | tojson), alone or joined with && to terms that do not refer to it"),
+      (.value.env // {} | keys[] | select(test("^(PATH|BASH_ENV|ENV)$") or (test("^GIT_") and (IN("GIT_SSH_COMMAND", "GIT_TERMINAL_PROMPT") | not)))
+       | "job \($job) sets \(.), which can change what git diff or bash reports"),
+      (if .value | has("container") then "job \($job) runs in a container (its git is not the runner one)" else empty end)' <<<"$1")
+}
+
 # `*_VERSION` and `*_SHA256` of ci.yml: well formed, never downgraded, a
 # tool's version and sha256 change together, a sha256 is never dropped while
 # its version stays. One JSON string per finding.
@@ -222,7 +331,7 @@ check_tool_pins() {
 }
 
 check_ci() {
-  local base_file=$1 head_file=$2 head base='{}' job missing coe
+  local base_file=$1 head_file=$2 head base='{}' job missing coe shape
   if [[ ! -f "$head_file" ]]; then
     hard_error "$CI_FILE is missing."
     return 0
@@ -230,9 +339,19 @@ check_ci() {
   head=$(yaml_json "$head_file")
   [[ ! -f "$base_file" ]] || base=$(yaml_json "$base_file")
 
-  for job in "${COMMON_JOBS[@]}" "$GATE_JOB"; do
-    has_job "$head" "$job" || hard_error "Mandatory job '$job' is missing from $CI_FILE."
-  done
+  shape=$(ci_shape "$head")
+  case "$shape" in
+    merged) check_checks_job "$head" ;;
+    mixed) hard_error "$CI_FILE has both the job '$CHECKS_JOB' and some of the common jobs it replaces (${COMMON_JOBS[*]}): keep one shape." ;;
+    *)
+      for job in "${COMMON_JOBS[@]}"; do
+        has_job "$head" "$job" \
+          || hard_error "Mandatory job '$job' is missing from $CI_FILE (or merge all six common jobs into '$CHECKS_JOB')."
+      done
+      ;;
+  esac
+  has_job "$head" "$GATE_JOB" || hard_error "Mandatory job '$GATE_JOB' is missing from $CI_FILE."
+  check_docs_only "$head"
   if has_job "$head" "$GATE_JOB"; then
     [[ "$(jq -r --arg job "$GATE_JOB" '.jobs[$job].name // ""' <<<"$head")" == "$GATE_NAME" ]] \
       || hard_error "Job '$GATE_JOB' must be named exactly '$GATE_NAME' (the required check)."
@@ -260,11 +379,19 @@ check_ci() {
     gate_change "$CI_FILE changed outside 'jobs' (name, on, permissions, defaults, concurrency or env; diff above)."
   fi
 
-  for job in $(jq -r --arg gate "$GATE_JOB" '.jobs | keys[] | select(. != $gate)' <<<"$base"); do
+  # A common job merged into `checks` is reported once, below.
+  for job in $(jq -r --arg gate "$GATE_JOB" --argjson common "$COMMON_JSON" --argjson merged "$([[ "$shape" == merged ]] && echo true || echo false)" \
+      '.jobs | keys[] | select(. != $gate) | select(. as $j | $merged and ($common | index($j)) | not)' <<<"$base"); do
     has_job "$head" "$job" || gate_change "job '$job' of the base branch was removed."
   done
+  if [[ "$shape" == merged && "$(ci_shape "$base")" == legacy ]]; then
+    gate_change "the common jobs were merged into '$CHECKS_JOB'."
+    show_diff "base: steps of the common jobs" "pr: steps of $CHECKS_JOB" \
+        <(common_steps "$base") <(common_steps "$head") \
+      || gate_change "the steps of the common jobs changed in the merge into '$CHECKS_JOB' (diff above)."
+  fi
 
-  for job in "${COMMON_JOBS[@]}" "$GATE_JOB"; do
+  for job in "${COMMON_JOBS[@]}" "$CHECKS_JOB" "$GATE_JOB"; do
     if has_job "$base" "$job" && has_job "$head" "$job" \
         && ! show_diff "base: $job" "pr: $job" <(gate_job "$base" "$job") <(gate_job "$head" "$job"); then
       gate_change "the definition of job '$job' changed (diff above)."
