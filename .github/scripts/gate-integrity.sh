@@ -64,6 +64,29 @@ echo "code=$code" >>"$GITHUB_OUTPUT"
 EOF
 )
 readonly DOCS_ONLY_RUN="$DOCS_ONLY_RUN"$'\n'
+# Jobs with the docs-only step, and `checks`: the job keys they may have, the
+# fork and draft guard of the templates as their exact `if:`, and the job env
+# keys in use today: GIT_SSH_COMMAND and GIT_TERMINAL_PROMPT (ADR-013
+# Amendment 3: node, flutter, backend), DART_SDK_VERSION, DART_SDK_SHA256 and
+# JAVA_VERSION (dart-client-drift of contracts). Anything else is refused: an
+# env such as GITHUB_OUTPUT, BASH_ENV or BASH_FUNC_git%% rewrites what a step
+# reports. A new key is added here, in a checker PR.
+readonly JOB_KEYS='["name", "runs-on", "timeout-minutes", "permissions", "needs", "if", "steps", "env"]'
+readonly JOB_ENV_KEYS='["GIT_SSH_COMMAND", "GIT_TERMINAL_PROMPT", "DART_SDK_VERSION", "DART_SDK_SHA256", "JAVA_VERSION"]'
+readonly JOB_IF="github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft"
+# The job-level keys of `checks` when the six jobs are merged into it.
+CHECKS_SHAPE=$(jq -cn --arg if "$JOB_IF" '{"runs-on": "ubuntu-latest", "timeout-minutes": 15, "if": $if}')
+readonly CHECKS_SHAPE
+# Top-level env names of ci.yml that change how every step runs: refused.
+readonly TOP_ENV_RE='^(GITHUB_|RUNNER_|BASH_|XDG_|LD_|GIT_)|^(SHELLOPTS|BASHOPTS|PS4|IFS|HOME|PATH|ENV)$'
+readonly TOP_ENV_OK='["GIT_SSH_COMMAND", "GIT_TERMINAL_PROMPT"]'
+# shellcheck disable=SC2016  # jq, not shell
+readonly JOB_SHAPE_JQ='
+  def job_shape($job):
+    ((keys - $jobkeys)[] | "job \($job) has \(tojson), not allowed here (only \($jobkeys | join(", ")))"),
+    (if .if != $jobif then "the if: of job \($job) must be exactly \($jobif | tojson)" else empty end),
+    (if (.env // {} | type) != "object" then "the env: of job \($job) must be a mapping, not an expression"
+     else (.env // {} | keys - $envkeys)[] | "job \($job) sets env \(tojson), outside \($envkeys | join(", "))" end);'
 readonly GATE_JOB="quality-gate"
 readonly GATE_NAME="Quality Gate"
 # shellcheck disable=SC2016  # a literal GitHub expression, not a shell one
@@ -241,10 +264,9 @@ common_steps() {
 # under CHECKS_IF, and every step of the six common jobs, by name. Their
 # content is compared with the base branch like any common job.
 check_checks_job() {
-  local finding
-  while IFS= read -r finding; do
-    hard_error "Job '$CHECKS_JOB' of $CI_FILE: $finding."
-  done < <(jq -r --arg job "$CHECKS_JOB" --arg if "$CHECKS_IF" --argjson names "$CHECKS_STEPS" '
+  # shellcheck disable=SC2016  # jq programs, not shell
+  report_findings "Job '$CHECKS_JOB' of $CI_FILE" --arg job "$CHECKS_JOB" --arg if "$CHECKS_IF" --argjson names "$CHECKS_STEPS" \
+      --argjson jobkeys "$JOB_KEYS" --argjson envkeys "$JOB_ENV_KEYS" --arg jobif "$JOB_IF" "$JOB_SHAPE_JQ"'
     def checkout: (.uses // "" | tostring | test("^actions/checkout@"));
     (.jobs[$job].steps // []) as $s
     | (if ($s[0] // {} | checkout and (.uses | test("@[0-9a-f]{40}$")) and ((keys - ["name", "uses", "with"]) == [])
@@ -254,7 +276,22 @@ check_checks_job() {
       ($s[1:] | to_entries[] | select(.value | checkout) | "a second checkout (step \(.key + 2))"),
       ($s[1:] | to_entries[] | select(.value.if != $if)
        | "step \(.key + 2) (\(.value.name // "unnamed" | tojson)) needs exactly if: \($if), so a failure never skips it"),
-      ($names - [$s[].name] | .[] | "step \(tojson) is missing")' <<<"$1")
+      ($names - [$s[].name] | .[] | "step \(tojson) is missing"),
+      (.jobs[$job] | job_shape($job))' <<<"$1"
+}
+
+# Runs jq (its arguments follow the prefix) for one finding per line. A jq
+# failure is a finding too: a shape it cannot read never passes unchecked.
+report_findings() {
+  local prefix=$1 out finding
+  shift
+  if ! out=$(jq -r "$@"); then
+    hard_error "$prefix: could not be analysed (unexpected shape)."
+    return 0
+  fi
+  while IFS= read -r finding; do
+    [[ -z "$finding" ]] || hard_error "$prefix: $finding."
+  done <<<"$out"
 }
 
 # Every job but the common ones and the gate that has the docs-only step, or
@@ -262,11 +299,10 @@ check_checks_job() {
 # widen the pattern), right after a pinned checkout of the merge commit, and a
 # step that refers to it runs at least whenever code is 'true'.
 check_docs_only() {
-  local finding
-  while IFS= read -r finding; do
-    hard_error "$CI_FILE, docs-only detection: $finding."
-  done < <(jq -r --argjson common "$COMMON_JSON" --arg checks "$CHECKS_JOB" --arg gate "$GATE_JOB" \
-      --arg name "$DOCS_ONLY_NAME" --arg run "$DOCS_ONLY_RUN" --arg cond "$DOCS_ONLY_COND" '
+  # shellcheck disable=SC2016  # jq programs, not shell
+  report_findings "$CI_FILE, docs-only detection" --argjson common "$COMMON_JSON" --arg checks "$CHECKS_JOB" --arg gate "$GATE_JOB" \
+      --arg name "$DOCS_ONLY_NAME" --arg run "$DOCS_ONLY_RUN" --arg cond "$DOCS_ONLY_COND" \
+      --argjson jobkeys "$JOB_KEYS" --argjson envkeys "$JOB_ENV_KEYS" --arg jobif "$JOB_IF" "$JOB_SHAPE_JQ"'
     # A reference to the step `changes` in any syntax: contexts ignore case.
     def refers: tostring | test("steps\\s*(\\.|\\[)\\s*[\"'"'"']?changes([^a-z0-9_-]|$)"; "i");
     def balanced: reduce (split("")[] | select(. == "(" or . == ")")) as $c (0;
@@ -291,9 +327,7 @@ check_docs_only() {
        then "the first step of job \($job) must be actions/checkout pinned by SHA, fetch-depth 0 or 2, persist-credentials: false, no other input" else empty end),
       ($s | to_entries[] | select(.value.if // "" | refers) | select(.key < 2 or (.value.if | narrows | not))
        | "step \(.key + 1) of job \($job): an if: that refers to the docs-only step must be \($cond | tojson), alone or joined with && to terms that do not refer to it"),
-      (.value.env // {} | keys[] | select(test("^(PATH|BASH_ENV|ENV)$") or (test("^GIT_") and (IN("GIT_SSH_COMMAND", "GIT_TERMINAL_PROMPT") | not)))
-       | "job \($job) sets \(.), which can change what git diff or bash reports"),
-      (if .value | has("container") then "job \($job) runs in a container (its git is not the runner one)" else empty end)' <<<"$1")
+      (.value | job_shape($job))' <<<"$1"
 }
 
 # `*_VERSION` and `*_SHA256` of ci.yml: well formed, never downgraded, a
@@ -352,6 +386,11 @@ check_ci() {
   esac
   has_job "$head" "$GATE_JOB" || hard_error "Mandatory job '$GATE_JOB' is missing from $CI_FILE."
   check_docs_only "$head"
+  # shellcheck disable=SC2016  # a jq program, not shell
+  report_findings "$CI_FILE env" --arg re "$TOP_ENV_RE" --argjson ok "$TOP_ENV_OK" '
+    if (.env // {} | type) != "object" then "must be a mapping, not an expression"
+    else .env // {} | keys[] | select(test($re) and (IN($ok[]) | not))
+      | "\(tojson) is refused at the top level (it changes how every step runs)" end' <<<"$head"
   if has_job "$head" "$GATE_JOB"; then
     [[ "$(jq -r --arg job "$GATE_JOB" '.jobs[$job].name // ""' <<<"$head")" == "$GATE_NAME" ]] \
       || hard_error "Job '$GATE_JOB' must be named exactly '$GATE_NAME' (the required check)."
@@ -386,6 +425,9 @@ check_ci() {
   done
   if [[ "$shape" == merged && "$(ci_shape "$base")" == legacy ]]; then
     gate_change "the common jobs were merged into '$CHECKS_JOB'."
+    show_diff "template: $CHECKS_JOB outside steps, name and permissions" "pr: $CHECKS_JOB outside steps, name and permissions" \
+        <(jq -S '.' <<<"$CHECKS_SHAPE") <(jq -S --arg job "$CHECKS_JOB" '.jobs[$job] | del(.steps, .name, .permissions)' <<<"$head") \
+      || hard_error "Job '$CHECKS_JOB' of $CI_FILE: in the merge, its job-level keys must be the template ones (diff above)."
     show_diff "base: steps of the common jobs" "pr: steps of $CHECKS_JOB" \
         <(common_steps "$base") <(common_steps "$head") \
       || gate_change "the steps of the common jobs changed in the merge into '$CHECKS_JOB' (diff above)."
