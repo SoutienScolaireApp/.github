@@ -31,7 +31,8 @@
 #   security) recorded on the PR, not this script.
 set -euo pipefail
 
-readonly COMMON_JOBS=(pr-conventions gitleaks actionlint lint-yaml-markdown osv-scanner gate-drift)
+# In the order of the steps of the merged `checks` job (CHECKS_TRUSTED first).
+readonly COMMON_JOBS=(pr-conventions gitleaks actionlint osv-scanner gate-drift lint-yaml-markdown)
 COMMON_JSON=$(printf '%s\n' "${COMMON_JOBS[@]}" | jq -R . | jq -cs .)
 readonly COMMON_JSON
 # The merged shape (SoutienScolaireApp/.github#68): one `checks` job instead of
@@ -40,12 +41,190 @@ readonly COMMON_JSON
 readonly CHECKS_JOB="checks"
 # shellcheck disable=SC2016  # a literal GitHub expression, not a shell one
 readonly CHECKS_IF='${{ !cancelled() }}'
-readonly CHECKS_STEPS='["Check the Conventional Commits title and the closing keyword",
-  "Install gitleaks (pinned, sha256 verified)", "Scan the commits of the PR",
-  "Install actionlint (pinned, sha256 verified)", "Lint the workflows",
-  "Require the lint configuration files", "Set up Python", "Set up Node.js", "yamllint", "markdownlint",
-  "Install osv-scanner (pinned, sha256 verified)", "Scan the committed lockfiles",
-  "Compare the Gate integrity copies with the public source"]'
+# Steps of one job share a VM: any step can write $GITHUB_PATH or $GITHUB_ENV
+# (BASH_ENV, a fake curl or sha256sum) and so rewrite every later step. The
+# steps that run no code of the repository come right after the checkout, in
+# this order, before any other (SoutienScolaireApp/.github#77): the lint
+# steps run tools pinned by the PR and markdownlint-cli2 loads JS
+# configuration from any directory, and a repository may add its own steps.
+# They are pinned here whole (name, if, env, run), byte for byte as in
+# workflow-templates/ci-*.yml, like the docs-only step: a step that only bore
+# their name could not take their place, and changing one is a PR to this
+# checker. Tool versions and sha256 stay in the workflow env (check_tool_pins).
+CHECKS_TRUSTED_STEPS=$(yq -p yaml -o json -I0 '.' - <<'EOF'
+- name: Check the Conventional Commits title and the closing keyword
+  if: ${{ !cancelled() }}
+  env:
+    GH_TOKEN: ${{ github.token }}
+    REPO: ${{ github.repository }}
+    PR_NUMBER: ${{ github.event.pull_request.number }}
+  run: |
+    set -euo pipefail
+    # Title and body are fetched live from the API and only ever held in
+    # shell variables: never interpolated into the script (injection), and
+    # a re-run sees a title edited after the last push.
+    pr_json=$(curl -fsSL \
+      -H "Authorization: Bearer ${GH_TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      "${GITHUB_API_URL}/repos/${REPO}/pulls/${PR_NUMBER}")
+    title=$(jq -r '.title' <<<"$pr_json")
+    body=$(jq -r '.body // ""' <<<"$pr_json")
+    author=$(jq -r '.user.login' <<<"$pr_json")
+
+    status=0
+    title_re='^(feat|fix|refactor|chore|docs|test|perf|ci)(\([a-z0-9._/-]+\))?!?: [^ ].*$'
+    if [[ "$title" =~ $title_re ]]; then
+      echo "Title OK: $title"
+    else
+      echo "::error::PR title is not Conventional Commits: '<type>(<scope>): <description> (#<issue>)', type in feat|fix|refactor|chore|docs|test|perf|ci. Got: $title"
+      status=1
+    fi
+
+    # Dependabot PRs have no issue: exempt from the issue suffix and the
+    # closing keyword only.
+    if [[ "$author" == "dependabot[bot]" ]]; then
+      echo "Dependabot PR: issue suffix and closing keyword not required."
+      exit "$status"
+    fi
+
+    suffix_re=' \(#[0-9]+\)$'
+    if [[ "$title" =~ $suffix_re ]]; then
+      echo "Issue suffix found."
+    else
+      echo "::error::PR title must end with its issue number: '<type>(<scope>): <description> (#<issue>)'."
+      status=1
+    fi
+
+    # The issue must be in this repository: '#<n>', '<this repo>#<n>' or
+    # its issues URL. A reference to another repository does not count.
+    repo_re=${REPO//./\\.}
+    closes_re="(^|[^[:alnum:]_])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+((${repo_re})?#[0-9]+|https://github\.com/${repo_re}/issues/[0-9]+)([^[:alnum:]_/]|$)"
+    if grep -Eiq "$closes_re" <<<"$body"; then
+      echo "Closing keyword found."
+    else
+      echo "::error::The PR body must link an issue of ${REPO} with 'Closes #<n>' (or Fixes/Resolves, or 'Closes ${REPO}#<n>')."
+      status=1
+    fi
+    exit "$status"
+- name: Install gitleaks (pinned, sha256 verified)
+  if: ${{ !cancelled() }}
+  run: |
+    set -euo pipefail
+    mkdir -p "$RUNNER_TEMP/bin" && cd "$RUNNER_TEMP"
+    base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+    archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+    curl -fsSLO "$base/$archive"
+    echo "${GITLEAKS_SHA256}  $archive" | sha256sum --check --strict -
+    tar -xzf "$archive" -C "$RUNNER_TEMP/bin" gitleaks
+    echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+- name: Scan the commits of the PR
+  if: ${{ !cancelled() }}
+  env:
+    BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  run: gitleaks git --no-banner --redact --verbose --ignore-gitleaks-allow --log-opts="--text ${BASE_SHA}..${HEAD_SHA}" .
+- name: Install actionlint (pinned, sha256 verified)
+  if: ${{ !cancelled() }}
+  run: |
+    set -euo pipefail
+    mkdir -p "$RUNNER_TEMP/bin" && cd "$RUNNER_TEMP"
+    base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+    archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+    curl -fsSLO "$base/$archive"
+    echo "${ACTIONLINT_SHA256}  $archive" | sha256sum --check --strict -
+    tar -xzf "$archive" -C "$RUNNER_TEMP/bin" actionlint
+    echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+- name: Lint the workflows
+  if: ${{ !cancelled() }}
+  run: actionlint -color
+- name: Install osv-scanner (pinned, sha256 verified)
+  if: ${{ !cancelled() }}
+  run: |
+    set -euo pipefail
+    mkdir -p "$RUNNER_TEMP/bin" && cd "$RUNNER_TEMP"
+    base="https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}"
+    binary="osv-scanner_linux_amd64"
+    curl -fsSLO "$base/$binary"
+    echo "${OSV_SCANNER_SHA256}  $binary" | sha256sum --check --strict -
+    install -m 0755 "$binary" "$RUNNER_TEMP/bin/osv-scanner"
+    echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+- name: Scan the committed lockfiles
+  if: ${{ !cancelled() }}
+  run: |
+    set -euo pipefail
+    report="$RUNNER_TEMP/osv.json"
+    rc=0
+    osv-scanner scan source -r --no-ignore --format json --output-file "$report" . || rc=$?
+    case "$rc" in
+      0) echo "No known vulnerability."; exit 0 ;;
+      1) ;;
+      128) echo "::notice::No lockfile found: nothing to scan."; exit 0 ;;
+      *) echo "::error::osv-scanner failed with exit code $rc (not a verdict): failing closed."; exit 1 ;;
+    esac
+
+    findings=$(jq -r '
+      [ .results[]?.packages[]? | . as $p | .groups[]?
+        | ((.max_severity // "") as $s | (try ($s | tonumber) catch -1)) as $score
+        | {pkg: "\($p.package.ecosystem) \($p.package.name)@\($p.package.version)",
+           ids: (.ids | join(", ")), score: $score} ]' "$report")
+    echo "All findings:"
+    jq -r '.[] | "  \(.pkg): \(.ids) (CVSS \(if .score < 0 then "unknown" else .score end))"' <<<"$findings"
+
+    blocking=$(jq '[.[] | select(.score < 0 or .score >= 7.0)] | length' <<<"$findings")
+    if [[ "$blocking" -gt 0 ]]; then
+      echo "::error::$blocking high, critical or unscored vulnerability group(s) found."
+      exit 1
+    fi
+    echo "Only moderate or low findings: not blocking (tracked by Dependabot alerts)."
+- name: Compare the Gate integrity copies with the public source
+  if: ${{ !cancelled() }}
+  env:
+    SOURCE_REPO: SoutienScolaireApp/.github
+    GIT_TERMINAL_PROMPT: "0"
+  run: |
+    set -euo pipefail
+    if [[ "$GITHUB_REPOSITORY" == "$SOURCE_REPO" ]]; then
+      echo "::notice::This repository is the source of both files: nothing to compare."
+      exit 0
+    fi
+
+    files=(.github/workflows/gate-integrity.yml .github/scripts/gate-integrity.sh)
+    touched=$(git diff --name-only HEAD^1 HEAD -- "${files[@]}")
+    unreadable() {
+      if [[ -n "$touched" ]]; then
+        echo "::error::This PR changes the Gate integrity files and ${SOURCE_REPO} develop could not be read ($1): re-run this job."
+        exit 1
+      fi
+      echo "::warning::Could not read ${SOURCE_REPO} develop ($1): drift not checked, re-run this job to check it."
+      exit 0
+    }
+    if ! timeout 60 git fetch --quiet --no-tags --depth=1 "${GITHUB_SERVER_URL}/${SOURCE_REPO}.git" develop; then
+      unreadable "fetch failed"
+    fi
+
+    drift=()
+    for f in "${files[@]}"; do
+      public=$(git ls-tree FETCH_HEAD -- "$f")
+      [[ -n "$public" ]] || unreadable "$f is missing there"
+      [[ "$(git ls-tree HEAD -- "$f")" == "$public" ]] || drift+=("$f")
+    done
+
+    if [[ "${#drift[@]}" -eq 0 ]]; then
+      echo "Both files are the ones of ${SOURCE_REPO} develop."
+    elif [[ -n "$touched" ]]; then
+      echo "::error::This PR changes the Gate integrity files, and ${drift[*]} differs from ${SOURCE_REPO} develop: copy both unchanged from there."
+      exit 1
+    else
+      echo "::warning::${drift[*]} differs from ${SOURCE_REPO} develop: copy both unchanged from there in a dedicated PR."
+    fi
+EOF
+)
+readonly CHECKS_TRUSTED_STEPS
+CHECKS_TRUSTED=$(jq -c 'map(.name)' <<<"$CHECKS_TRUSTED_STEPS")
+readonly CHECKS_TRUSTED
+CHECKS_STEPS=$(jq -cn --argjson t "$CHECKS_TRUSTED" '$t + ["Require the lint configuration files",
+  "Set up Python", "Set up Node.js", "yamllint", "markdownlint"]')
+readonly CHECKS_STEPS
 # The docs-only step of the heavy jobs (CI.md, "Docs-only pull requests"),
 # byte for byte as in workflow-templates/ci-*.yml.
 readonly DOCS_ONLY_NAME="Detect a docs-only pull request"
@@ -98,8 +277,15 @@ readonly ACTIONS_DIR=".github/actions"
 # Configuration of the common jobs and of Dependabot: a change to any of them
 # is a gate change.
 readonly WATCHED_FILES=(.github/actionlint.yaml .github/actionlint.yml .github/dependabot.yml .github/dependabot.yaml
-  .yamllint .yamllint.yml .yamllint.yaml .markdownlint-cli2.yaml .markdownlint-cli2.jsonc .markdownlint-cli2.cjs
-  .markdownlint.yaml .markdownlint.yml .markdownlint.json .markdownlint.jsonc)
+  .yamllint .yamllint.yml .yamllint.yaml)
+# markdownlint-cli2 reads `.markdownlint-cli2.*` and `.markdownlint.*` in every
+# directory it lints, and runs the .cjs and .mjs ones and the modules named by
+# customRules, markdownItPlugins or outputFormatters: watched at any depth.
+readonly MARKDOWNLINT_NAME='.markdownlint*'
+# Keys that load another file or module, wherever they appear and however
+# they are quoted; a backslash escape (\u0063ustomRules) could spell one.
+readonly MARKDOWNLINT_MODULES_RE='customRules|markdownItPlugins|outputFormatters|extends|modulePaths|[\]'
+
 # Hashed pins of the lint tools of the common jobs and of the ci-ansible
 # toolchain: a change is a gate change, except a content change in a verified
 # Dependabot PR (as for action SHAs).
@@ -253,16 +439,21 @@ ci_shape() {
 
 # The steps of the common checks, checkouts and `if:` left out, in the order
 # of COMMON_JOBS: compares the six jobs of the base with a merged `checks`.
+# The trusted steps are left out too: check_checks_job pins them whole.
 common_steps() {
-  normalized "$1" | jq -S --arg checks "$CHECKS_JOB" --argjson common "$COMMON_JSON" '
+  normalized "$1" | jq -S --arg checks "$CHECKS_JOB" --argjson common "$COMMON_JSON" --argjson trusted "$CHECKS_TRUSTED" '
     [(if .jobs | has($checks) then .jobs[$checks].steps else [$common[] as $c | .jobs[$c].steps // [] | .[]] end)[]
-     | select(.uses // "" | tostring | test("^actions/checkout@") | not) | del(.if)]'
+     | select(.uses // "" | tostring | test("^actions/checkout@") | not)
+     | select(.name as $n | $trusted | index($n) | not) | del(.if)]'
 }
 
 # The merged `checks` job: one pinned checkout first (full history, for the
-# gitleaks range and gate-drift's HEAD^1), no other one, every later step
-# under CHECKS_IF, and every step of the six common jobs, by name. Their
-# content is compared with the base branch like any common job.
+# gitleaks range and gate-drift's HEAD^1), then the CHECKS_TRUSTED steps in
+# their order, no other checkout, every later step under CHECKS_IF, and every
+# step of the six common jobs, by name. Their content is compared with the
+# base branch like any common job. The order is never a gate change: a step
+# before the trusted ones could disarm them, whatever the PR body says. Two
+# steps never share a name.
 check_checks_job() {
   # shellcheck disable=SC2016  # jq programs, not shell
   report_findings "Job '$CHECKS_JOB' of $CI_FILE" --arg job "$CHECKS_JOB" --arg if "$CHECKS_IF" --argjson names "$CHECKS_STEPS" \
@@ -277,7 +468,12 @@ check_checks_job() {
       ($s[1:] | to_entries[] | select(.value.if != $if)
        | "step \(.key + 2) (\(.value.name // "unnamed" | tojson)) needs exactly if: \($if), so a failure never skips it"),
       ($names - [$s[].name] | .[] | "step \(tojson) is missing"),
+      ([$s[].name | select(. != null)] | group_by(.)[] | select(length > 1) | "two steps named \(.[0] | tojson)"),
       (.jobs[$job] | job_shape($job))' <<<"$1"
+  show_diff "checker: the trusted steps" "pr: steps 2 to $(($(jq length <<<"$CHECKS_TRUSTED_STEPS") + 1)) of $CHECKS_JOB" \
+      <(jq -S '.' <<<"$CHECKS_TRUSTED_STEPS") \
+      <(jq -S --arg job "$CHECKS_JOB" --argjson n "$(jq length <<<"$CHECKS_TRUSTED_STEPS")" '.jobs[$job].steps // [] | .[1:$n + 1]' <<<"$1") \
+    || hard_error "Job '$CHECKS_JOB' of $CI_FILE: steps 2 to 9 must be, in this order and byte for byte as in the checker, $(jq -r 'map(tojson) | join(", ")' <<<"$CHECKS_TRUSTED"); a step that runs code of the repository (lint, set-up, a step of the repository) comes after them (diff above)."
 }
 
 # Runs jq (its arguments follow the prefix) for one finding per line. A jq
@@ -448,6 +644,12 @@ list_files() {
   (cd "$1" && find "$2" -type f -print | sort)
 }
 
+# Watched at any depth: markdownlint configuration, and .gitattributes (a
+# `-diff` attribute hides a file from the patches gitleaks scans).
+list_nested_watched() {
+  (cd "$1" && find . -type f \( -name "$MARKDOWNLINT_NAME" -o -name .gitattributes \) -print | sed 's|^\./||')
+}
+
 list_workflows() {
   [[ -d "$1/.github/workflows" ]] || return 0
   (cd "$1" && find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort)
@@ -591,7 +793,8 @@ check_workflows() {
     fi
   done < <({ list_files "$base_dir" "$ACTIONS_DIR"; list_files "$head_dir" "$ACTIONS_DIR"; } | sort -u)
 
-  for path in "${WATCHED_FILES[@]}"; do
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
     if [[ -f "$base_dir/$path" && ! -f "$head_dir/$path" ]]; then
       gate_change "$path was removed (configuration of the common jobs or of Dependabot)."
     elif [[ ! -f "$base_dir/$path" && -f "$head_dir/$path" ]]; then
@@ -600,7 +803,14 @@ check_workflows() {
     elif [[ -f "$head_dir/$path" ]] && ! show_diff "base: $path" "pr: $path" "$base_dir/$path" "$head_dir/$path"; then
       gate_change "$path changed (configuration of the common jobs or of Dependabot; diff above)."
     fi
-  done
+    # The code these load is not watched: reviewed on every PR while it exists.
+    [[ -f "$head_dir/$path" && "${path##*/}" == .markdownlint* ]] || continue
+    if [[ "$path" == *.cjs || "$path" == *.mjs ]]; then
+      gate_change "$path is a JS configuration of markdownlint (code run by the CI, whose imports are not watched)."
+    elif grep -Eq "$MARKDOWNLINT_MODULES_RE" "$head_dir/$path"; then
+      gate_change "$path names $MARKDOWNLINT_MODULES_RE modules (code run by the CI, not watched)."
+    fi
+  done < <({ printf '%s\n' "${WATCHED_FILES[@]}"; list_nested_watched "$base_dir"; list_nested_watched "$head_dir"; } | sort -u)
 
   for path in "${TOOL_PIN_FILES[@]}"; do
     if [[ -f "$base_dir/$path" && ! -f "$head_dir/$path" ]]; then
@@ -764,11 +974,11 @@ extract() {
     [[ "$meta" == *" blob "* ]] || continue
     case "$path" in
       .github/workflows/*.yml | .github/workflows/*.yaml | "$INTEGRITY_SCRIPT" | "$ACTIONS_DIR"/* | .gitleaks.toml | .gitleaksignore) ;;
-      .github/actionlint.y*ml | .github/dependabot.y*ml | .yamllint* | .markdownlint*) ;;
+      .github/actionlint.y*ml | .github/dependabot.y*ml | .yamllint*) ;;
       .github/lint/requirements.txt | .github/lint/package.json | .github/lint/package-lock.json) ;;
       .github/ansible/requirements.txt) ;;
       osv-scanner.toml | */osv-scanner.toml) [[ ! "$path" =~ $SKIPPED_DIR_RE ]] || continue ;;
-      *) continue ;;
+      *) [[ "${path##*/}" == .markdownlint* || "${path##*/}" == .gitattributes ]] || continue ;;
     esac
     # git refuses such paths; never write outside the directory regardless.
     if [[ "/$path/" == *"/../"* || "/$path/" == *"/./"* || "/$path/" == *"/.git/"* || "$path" == /* ]]; then

@@ -138,7 +138,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: gitleaks git --no-banner --redact --verbose --log-opts="${BASE_SHA}..${HEAD_SHA}" .
+        run: gitleaks git --no-banner --redact --verbose --ignore-gitleaks-allow --log-opts="--text ${BASE_SHA}..${HEAD_SHA}" .
 
   actionlint:
     name: Workflows (actionlint)
@@ -259,7 +259,7 @@ jobs:
           set -euo pipefail
           report="$RUNNER_TEMP/osv.json"
           rc=0
-          osv-scanner scan source -r --format json --output-file "$report" . || rc=$?
+          osv-scanner scan source -r --no-ignore --format json --output-file "$report" . || rc=$?
           case "$rc" in
             0) echo "No known vulnerability."; exit 0 ;;
             1) ;;
