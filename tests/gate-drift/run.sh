@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Checks of the gate drift step of the common `checks` job (SoutienScolaireApp/.github#41,
-# merged into `checks` by #74), without network: the script of ci-common runs in a shallow clone of a real merge
-# commit, as actions/checkout leaves it, against a local bare repository that
-# stands for the public source.
+# Checks of the gate drift step of the common `checks` job
+# (SoutienScolaireApp/.github#41, a job of its own until #74), without network:
+# the script of ci-common runs in a clone of a real merge commit, depth 2 (the
+# least the step needs; the checkout of `checks` fetches the whole history),
+# against a local bare repository that stands for the public source.
 #
 # Usage: tests/gate-drift/run.sh   (needs yq, jq, git, timeout)
 set -euo pipefail

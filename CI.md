@@ -175,9 +175,9 @@ To change the checker: change it and its tests here (`tests/gate-integrity/run.s
 
 **Adoption window.** A change to the checker, a template, a lint configuration or `dependabot.yml` merged here reaches each repository through its own PR, and until that PR merges:
 
-- the repository is still judged by its previous checker and `ci.yml`, so a new rule is not enforced there yet, and `gate-drift` only warns on its other PRs;
+- the repository is still judged by its previous checker and `ci.yml`, so a new rule is not enforced there yet, and its gate drift step only warns on its other PRs;
 - the adopting PR is judged by that previous checker, from `develop`, and is a gate change as soon as it touches a watched file. Without a `## Gate change` section `Gate integrity` is red, and since the check is required the PR cannot merge;
-- if the new checker requires something new (a common job, for example), the same PR adds it: the next PR is judged by the new checker.
+- if the new checker requires something new (a common step, for example), the same PR adds it: the next PR is judged by the new checker.
 
 ### Drift of the copies
 
@@ -218,8 +218,8 @@ One formatter of record per file type, all blocking:
 
 | Files | Tool | Job |
 | --- | --- | --- |
-| YAML | yamllint `--strict` (`.yamllint.yml`, version in `.github/lint/requirements.txt`) | `lint-yaml-markdown` |
-| Markdown | markdownlint-cli2 (`.markdownlint-cli2.yaml`, version in `.github/lint/package-lock.json`) | `lint-yaml-markdown` |
+| YAML | yamllint `--strict` (`.yamllint.yml`, version in `.github/lint/requirements.txt`) | `checks` (step `yamllint`) |
+| Markdown | markdownlint-cli2 (`.markdownlint-cli2.yaml`, version in `.github/lint/package-lock.json`) | `checks` (step `markdownlint`) |
 | TypeScript, JavaScript, JSON, CSS, HTML (pnpm repositories) | Prettier, `pnpm run format:check` | `node` (`Format check`) |
 | Dart | `dart format --set-exit-if-changed` | `flutter` (`Format`) |
 
@@ -230,7 +230,7 @@ In a pnpm repository, `.prettierignore` lists `*.md`, `*.yml` and `*.yaml` (plus
 - **A gitleaks finding means the secret is compromised**: it has already been pushed. Rotate it first, then remove it from the branch. `.gitleaksignore` is used only for proven false positives, justified in the PR; inline `gitleaks:allow` comments are ignored by the scan (`--ignore-gitleaks-allow`), since anyone can add one in the PR that holds the secret and the checker never sees it; `.gitleaksignore` entries and allowlists also carry an expiry date ([Ignore files](#ignore-files)).
 - **osv-scanner** blocks on high and critical findings, and on findings without a severity score. Moderate and low findings are left to Dependabot alerts. A finding with no available fix may be ignored only in `osv-scanner.toml` (`[[IgnoredVulns]]` with `reason` and `ignoreUntil`), reviewed in the PR. `pnpm audit` is a local command, never a CI check.
 - **Dependabot PRs** are exempt from the `Closes #n` check only (author `dependabot[bot]`); their `chore(deps): ...` titles pass the title check like any other.
-- **Whole history, weekly**: `gitleaks-history.yml` scans every commit reachable from any branch or tag every Monday, and is run by hand (**Actions > Secrets history scan > Run workflow**) before any mirror or migration of a repository (the Forgejo mirror included). The `gitleaks` job of `ci.yml` only scans the commits of the PR. A finding of the scheduled run only shows as a red run in the Actions tab (and GitHub's failure email to the last person who changed the schedule): no issue or PR check is created, so look at it every week. GitHub disables a scheduled workflow after 60 days without repository activity; re-enable it in **Actions > Secrets history scan** if the repository was quiet.
+- **Whole history, weekly**: `gitleaks-history.yml` scans every commit reachable from any branch or tag every Monday, and is run by hand (**Actions > Secrets history scan > Run workflow**) before any mirror or migration of a repository (the Forgejo mirror included). The gitleaks step of the `checks` job of `ci.yml` only scans the commits of the PR. A finding of the scheduled run only shows as a red run in the Actions tab (and GitHub's failure email to the last person who changed the schedule): no issue or PR check is created, so look at it every week. GitHub disables a scheduled workflow after 60 days without repository activity; re-enable it in **Actions > Secrets history scan** if the repository was quiet.
 - **Checksum provenance**: every tool downloaded in a `run:` step is checked against a sha256 pinned in `env:`, never against a checksum file of the same release. The accepted risk is the first pin: the sha256 is taken once from the release (asset digest, cross-checked locally); a release replaced before that moment would be pinned as is.
 
 ## Fork pull requests and run retention

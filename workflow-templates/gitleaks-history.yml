@@ -1,8 +1,9 @@
 # Weekly gitleaks scan of the whole git history, from
 # workflow-templates/gitleaks-history.yml of SoutienScolaireApp/.github.
 # Copied as is to .github/workflows/gitleaks-history.yml of every repository.
-# The `gitleaks` job of ci.yml only scans the commits of a PR: this one also
-# catches a secret pushed outside a PR, or a rule that gitleaks gained since.
+# The gitleaks step of the `checks` job of ci.yml only scans the commits of a
+# PR: this one also catches a secret pushed outside a PR, or a rule that
+# gitleaks gained since.
 # Run it by hand (Actions > Secrets history scan > Run workflow) before any
 # mirror or migration of the repository (CI.md, ADR-014). A finding means the
 # secret is compromised: rotate it first.
@@ -21,7 +22,8 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
-# Same pins as the `gitleaks` job of ci.yml: bump both together (CI.md).
+# Same pins as the gitleaks step of the `checks` job of ci.yml: bump both
+# together (CI.md).
 env:
   GITLEAKS_VERSION: '8.30.1'
   GITLEAKS_SHA256: '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'

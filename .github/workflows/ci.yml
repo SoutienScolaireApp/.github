@@ -158,55 +158,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: actionlint -color
 
-      - name: Require the lint configuration files
-        if: ${{ !cancelled() }}
-        run: |
-          set -euo pipefail
-          missing=0
-          for f in .yamllint.yml .markdownlint-cli2.yaml \
-            .github/lint/requirements.txt .github/lint/package.json .github/lint/package-lock.json; do
-            if [[ ! -f "$f" ]]; then
-              echo "::error::$f is missing: copy it from templates/lint/ in SoutienScolaireApp/.github (CI.md)."
-              missing=1
-            fi
-          done
-          exit "$missing"
-
-      - name: Set up Python
-        if: ${{ !cancelled() }}
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # actions/setup-python@v7.1.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Set up Node.js
-        if: ${{ !cancelled() }}
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # actions/setup-node@v7.1.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          package-manager-cache: false
-
-      # Lint tools come from .github/lint/: every package, transitive ones
-      # included, is pinned with its hash (pip --require-hashes, npm ci with
-      # the lockfile integrity). Bumped by Dependabot (pip, npm).
-      - name: yamllint
-        if: ${{ !cancelled() }}
-        run: |
-          set -euo pipefail
-          python -m pip install --disable-pip-version-check \
-            --require-hashes --only-binary :all: --no-deps -r .github/lint/requirements.txt
-          yamllint --strict .
-
-      # Installed outside the checkout, so no node_modules lands in the tree.
-      - name: markdownlint
-        if: ${{ !cancelled() }}
-        run: |
-          set -euo pipefail
-          tools="$RUNNER_TEMP/lint-node"
-          mkdir -p "$tools"
-          cp .github/lint/package.json .github/lint/package-lock.json "$tools/"
-          npm ci --prefix "$tools" --ignore-scripts --no-audit --no-fund
-          "$tools/node_modules/.bin/markdownlint-cli2"
-
       - name: Install osv-scanner (pinned, sha256 verified)
         if: ${{ !cancelled() }}
         run: |
@@ -297,6 +248,60 @@ jobs:
           else
             echo "::warning::${drift[*]} differs from ${SOURCE_REPO} develop: copy both unchanged from there in a dedicated PR."
           fi
+
+      # Every step above runs no code of the repository. From here on, steps
+      # run code the PR can choose (the tool pins of .github/lint/, the
+      # markdownlint configuration, a step of the repository): they stay
+      # last, and Gate integrity refuses another order (CI.md, "Order of the
+      # steps").
+      - name: Require the lint configuration files
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for f in .yamllint.yml .markdownlint-cli2.yaml \
+            .github/lint/requirements.txt .github/lint/package.json .github/lint/package-lock.json; do
+            if [[ ! -f "$f" ]]; then
+              echo "::error::$f is missing: copy it from templates/lint/ in SoutienScolaireApp/.github (CI.md)."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Set up Python
+        if: ${{ !cancelled() }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # actions/setup-python@v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node.js
+        if: ${{ !cancelled() }}
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # actions/setup-node@v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      # Lint tools come from .github/lint/: every package, transitive ones
+      # included, is pinned with its hash (pip --require-hashes, npm ci with
+      # the lockfile integrity). Bumped by Dependabot (pip, npm).
+      - name: yamllint
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary :all: --no-deps -r .github/lint/requirements.txt
+          yamllint --strict .
+
+      # Installed outside the checkout, so no node_modules lands in the tree.
+      - name: markdownlint
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/lint-node"
+          mkdir -p "$tools"
+          cp .github/lint/package.json .github/lint/package-lock.json "$tools/"
+          npm ci --prefix "$tools" --ignore-scripts --no-audit --no-fund
+          "$tools/node_modules/.bin/markdownlint-cli2"
 
   # This repository only: the scripts shipped to the other repositories, the
   # workflow templates (actionlint, drift) and their table tests
