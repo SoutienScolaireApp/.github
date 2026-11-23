@@ -470,9 +470,9 @@ expect 0 "Dependabot: an action SHA bumped in checks" dependabot_pr check_merged
 gate_change_case "the six common jobs merged into checks" "$(merged_head '.')"
 grep -q 'changed in the merge' "$work/out.txt" && fail "a faithful merge reported as changing the steps"
 expect 1 "the merge rewrites a step, no justification" feat_pr check \
-  "$(merged_head '.jobs.checks.steps[3].run = "true"')"
+  "$(merged_head '(.jobs.checks.steps[] | select(.name == "yamllint")).run = "true"')"
 grep -q 'changed in the merge' "$work/out.txt" || fail "a step rewritten in the merge is not reported"
-gate_change_case "a step of checks rewritten" "$(merged_head '.jobs.checks.steps[3].run = "true"')"
+gate_change_case "a step of checks rewritten" "$(merged_head '(.jobs.checks.steps[] | select(.name == "yamllint")).run = "true"')"
 expect 1 "checks split back into the common jobs, no justification" feat_pr "$script" check "$merged_base" "$base"
 expect 0 "checks split back into the common jobs, justified" justified_pr "$script" check "$merged_base" "$base"
 # merged_hard <label> <yq change> [<message the refusal must hold>]
@@ -519,6 +519,21 @@ expect 1 "a repository step after the trusted steps, no justification" feat_pr c
 expect 0 "a repository step after the trusted steps, justified" justified_pr check_merged \
   "$(merged_head ".jobs.checks.steps += [$repo_step]")"
 grep -q 'in this order' "$work/out.txt" && fail "a repository step after the trusted steps reported as out of order"
+# The trusted steps are pinned whole, not by name.
+scan='"Scan the commits of the PR"'
+merged_hard "a repository step under a trusted name first, the real one later" \
+  ".jobs.checks.steps |= ([.[0], ($repo_step | .name = $scan)] + .[1:])" "in this order"
+grep -q "two steps named" "$work/out.txt" || fail "a repository step under a trusted name: the duplicate name is not reported"
+merged_hard "a repository step under a trusted name in its slot, the real one renamed and later" \
+  ".jobs.checks.steps |= ([.[0:3][], ($repo_step | .name = $scan)] + .[4:] + [(.[3] | .name = \"Scan again\")])" "in this order"
+merged_hard "BASH_ENV on a trusted step" '(.jobs.checks.steps[] | select(.name == "Lint the workflows")).env.BASH_ENV = "./x.sh"' "in this order"
+merged_hard "the osv scan without --no-ignore" \
+  '(.jobs.checks.steps[] | select(.name == "Scan the committed lockfiles")).run |= sub(" --no-ignore"; "")' "in this order"
+merged_hard "the gitleaks scan without --text" \
+  '(.jobs.checks.steps[] | select(.name == "Scan the commits of the PR")).run |= sub("--text "; "")' "in this order"
+merged_hard "a shell on a trusted step" '(.jobs.checks.steps[] | select(.name == "Lint the workflows")).shell = "sh"' "in this order"
+merged_hard "two lint steps with one name" \
+  '.jobs.checks.steps += [(.jobs.checks.steps[] | select(.name == "yamllint"))]' "two steps named"
 
 echo "== markdownlint configuration at any depth (.github#77)"
 gate_change_case "a nested .markdownlint-cli2.cjs added" \
@@ -526,9 +541,14 @@ gate_change_case "a nested .markdownlint-cli2.cjs added" \
 gate_change_case "a nested .markdownlint.mjs added" "$(head_with docs/.markdownlint.mjs <<<'export default {};')"
 gate_change_case "a nested .markdownlint.yaml added" "$(head_with docs/.markdownlint.yaml <<<'MD013: false')"
 gate_change_case "a nested .markdownlint-cli2.jsonc added" "$(head_with src/.markdownlint-cli2.jsonc <<<'{}')"
+gate_change_case "a .gitattributes added (it can hide files from gitleaks)" "$(head_with .gitattributes <<<'* -diff')"
+gate_change_case "a nested .gitattributes added" "$(head_with docs/.gitattributes <<<'*.txt -diff')"
 # Present on both sides, unchanged: still reviewed, the code it loads is not watched.
 for case_ in "docs/.markdownlint.cjs|module.exports = {};" \
     "docs/.markdownlint-cli2.yaml|customRules: [./rules/x.js]" \
+    "docs/.markdownlint.yaml|extends: ../x.yaml" \
+    "docs/.markdownlint-cli2.yaml|'modulePaths': [./m]" \
+    "docs/.markdownlint-cli2.yaml|\"custom\\u0052ules\": [./r.js]" \
     ".markdownlint-cli2.jsonc|{ \"markdownItPlugins\": [[\"./p.js\"]] }"; do
   path=${case_%%|*}
   mkdir -p "$base/$(dirname "$path")"
