@@ -49,7 +49,7 @@ Not here: issue forms and the pull request template. Each code repository carrie
 
 ## Templates and drift
 
-- **CI** (`CI.md`): the common jobs (`pr-conventions`, `gitleaks`, `actionlint`, `lint-yaml-markdown`, `osv-scanner`, `gate-drift`), the gate (its `needs:` aside), the `env:` pins and every action SHA are identical in all `workflow-templates/ci-*.yml` and in `.github/workflows/ci.yml`; `templates/lint/` equals `.github/lint/` and the root lint configs; `gitleaks-history.yml` equals its template. `tests/ci-templates/run.sh` fails otherwise.
+- **CI** (`CI.md`): the common `checks` job (the steps of the former `pr-conventions`, `gitleaks`, `actionlint`, `lint-yaml-markdown`, `osv-scanner` and `gate-drift` jobs, merged by #74), the gate (its `needs:` aside), the `env:` pins and every action SHA are identical in all `workflow-templates/ci-*.yml` and in `.github/workflows/ci.yml`; `templates/lint/` equals `.github/lint/` and the root lint configs; `gitleaks-history.yml` equals its template. `tests/ci-templates/run.sh` fails otherwise.
 - **Downstream copies** do not follow automatically: after a template change, each consumer repository updates its `ci.yml`, `.github/lint/`, lint configs or `dependabot.yml` in its own PR, listed in the issue that changed the template. Expect drift until those PRs merge; `tests/ci-templates/run.sh` only covers this repository. For the two `Gate integrity` files, the `gate-drift` job of each repository compares its copies with `develop` here (`CI.md`, "Drift of the copies"); in this repository, the source, it passes without comparing.
 - **`Gate integrity`** (`CI.md`, "Gate integrity"): a PR that changes the gate needs a `## Gate change` section (20 letters or digits, HTML comments excluded); the double agent review (code and security) recorded on the PR is an input to the decision, not the decision: a gate change (`ci*.yml`, `gate-integrity.*`, `rulesets/`, pins) merges only with Céline's explicit approval, like every merge. It is a required check of `protect-develop.json`, live once an organisation owner has applied the file (`rulesets/README.md`): until then, human review is the only control against a PR weakening the gate.
 - **Dependabot** (`DEPENDABOT.md`): monthly, 7-day cooldown, minor and patch grouped, `chore(deps):` titles, label `tech-debt`; never push to or use Update branch on a Dependabot PR, comment `@dependabot rebase`.
@@ -61,7 +61,7 @@ Not here: issue forms and the pull request template. Each code repository carrie
 
 ## Tests
 
-`ci.yml` runs the common jobs plus `scripts`: actionlint on `workflow-templates/*.yml` (the `actionlint` job only reads `.github/workflows/`), shellcheck on every script, and every `tests/*/run.sh` (needs `yq`, `jq`, `python3`). A template change is verified on one consumer repository before rollout: one broken template can turn every repository red.
+`ci.yml` runs the common `checks` job plus `scripts`: actionlint on `workflow-templates/*.yml` (the actionlint step of `checks` only reads `.github/workflows/`), shellcheck on every script, and every `tests/*/run.sh` (needs `yq`, `jq`, `python3`). A template change is verified on one consumer repository before rollout: one broken template can turn every repository red.
 
 ## Open follow-ups
 

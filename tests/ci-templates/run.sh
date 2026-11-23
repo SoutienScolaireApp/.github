@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Checks of the CI templates (SoutienScolaireApp/.github#8), without network:
-# 1. drift: the common jobs, the gate, the shared tool pins and every action
+# 1. drift: the common `checks` job, the gate, the shared tool pins and every action
 #    pin are the same in every workflow-templates/ci-*.yml and in this
 #    repository's own workflows; the lint lockfiles, the root lint
 #    configurations and the history scan of this repository are copies of
@@ -33,12 +33,11 @@ others=(workflow-templates/ci-ansible.yml workflow-templates/ci-flutter.yml
   workflow-templates/ci-node.yml workflow-templates/ci-openapi.yml .github/workflows/ci.yml)
 
 # --- 1. drift ---------------------------------------------------------------
-for job in pr-conventions gitleaks actionlint lint-yaml-markdown osv-scanner gate-drift; do
-  want=$(yq -o=json ".jobs.\"$job\"" "$ref")
-  for f in "${others[@]}"; do
-    check "job $job of $f is the one of $ref" "job $job of $f differs from $ref" \
-      test "$(yq -o=json ".jobs.\"$job\"" "$f")" == "$want"
-  done
+# The six common jobs are merged into one `checks` job (.github#74).
+want=$(yq -o=json '.jobs.checks' "$ref")
+for f in "${others[@]}"; do
+  check "job checks of $f is the one of $ref" "job checks of $f differs from $ref" \
+    test "$(yq -o=json '.jobs.checks' "$f")" == "$want"
 done
 
 want=$(yq -o=json '.jobs."quality-gate" | del(.needs)' "$ref")
@@ -82,7 +81,7 @@ for f in .yamllint.yml .markdownlint-cli2.yaml; do
 done
 
 # --- 2. PR title and linked issue -------------------------------------------
-yq '.jobs."pr-conventions".steps[] | select(.name == "Check the Conventional Commits title and the closing keyword") | .run' \
+yq '.jobs.checks.steps[] | select(.name == "Check the Conventional Commits title and the closing keyword") | .run' \
   "$ref" >"$work/check.sh"
 [[ -s "$work/check.sh" ]] || { ko "the pr-conventions step was not found in $ref"; exit 1; }
 mkdir -p "$work/bin"

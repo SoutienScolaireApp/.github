@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Checks of the `gate-drift` common job (SoutienScolaireApp/.github#41), without
-# network: the script of ci-common runs in a shallow clone of a real merge
-# commit, as actions/checkout leaves it, against a local bare repository that
-# stands for the public source.
+# Checks of the gate drift step of the common `checks` job
+# (SoutienScolaireApp/.github#41, a job of its own until #74), without network:
+# the script of ci-common runs in a clone of a real merge commit, depth 2 (the
+# least the step needs; the checkout of `checks` fetches the whole history),
+# against a local bare repository that stands for the public source.
 #
 # Usage: tests/gate-drift/run.sh   (needs yq, jq, git, timeout)
 set -euo pipefail
@@ -18,26 +19,27 @@ fail=0
 ok() { echo "ok   $1"; }
 ko() { echo "FAIL $1"; fail=1; }
 
-job='.jobs."gate-drift"'
+job='.jobs.checks'
 step="$job.steps[] | select(.name == \"Compare the Gate integrity copies with the public source\")"
 yq "$step | .run" "$ref" >"$work/job.sh"
-[[ -s "$work/job.sh" ]] || { ko "the gate-drift step was not found in $ref"; exit 1; }
+[[ -s "$work/job.sh" ]] || { ko "the gate drift step was not found in $ref"; exit 1; }
 
 # --- Invariants of the job ---------------------------------------------------
 assert() {  # assert <label> <yq expression that must print true>
   if [[ "$(yq "$2" "$ref")" == "true" ]]; then ok "$1"; else ko "$1"; fi
 }
 assert "the source is the public repository" "($step | .env.SOURCE_REPO) == \"SoutienScolaireApp/.github\""
-assert "the checkout reaches the first parent" "($job.steps[0].with.fetch-depth) == 2"
+assert "the checkout reaches the first parent (full history)" "($job.steps[0].with.fetch-depth) == 0"
 assert "the checkout keeps no credential" "($job.steps[0].with.persist-credentials) == false"
 assert "the action is pinned by SHA" "$job.steps[0].uses | test(\"@[0-9a-f]{40}\$\")"
-assert "read-only permissions" "($job.permissions | to_entries | length == 1) and $job.permissions.contents == \"read\""
-assert "the fork guard of the other common jobs" "$job.if == .jobs.gitleaks.if"
-assert "in the needs of the gate" '.jobs."quality-gate".needs | contains(["gate-drift"])'
-if grep -q 'secrets\.\|github\.token\|[$]{{' <(yq -o=json "$job" "$ref" | jq 'del(.if)'); then
-  ko "no secret, no token, no expression in the job"
+assert "read-only permissions" "[$job.permissions[] | select(. != \"read\")] | length == 0"
+assert "the fork and draft guard" "$job.if == \"github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft\""
+assert "runs after an earlier failed step" "($step | .if) == \"\${{ !cancelled() }}\""
+assert "in the needs of the gate" '.jobs."quality-gate".needs | contains(["checks"])'
+if grep -q 'secrets\.\|github\.token\|[$]{{' <(yq -o=json "$step" "$ref" | jq 'del(.if)'); then
+  ko "no secret, no token, no expression in the step"
 else
-  ok "no secret, no token, no expression in the job"
+  ok "no secret, no token, no expression in the step"
 fi
 
 # --- Fixtures ----------------------------------------------------------------

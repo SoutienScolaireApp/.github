@@ -73,12 +73,43 @@ fi
 
 # --- Trees ------------------------------------------------------------------
 
-# A repository tree: a ci.yml (none if empty), the gate-integrity workflow and
-# its checker.
+# The templates have the merged `checks` job (.github#74); most cases run on
+# the six common jobs, the shape of the repositories until they switch. This
+# splits `checks` back into them, as they were before the merge.
+split='(.jobs.checks.steps | map(del(.if))) as $s
+| $s[0] as $co
+| {"name": "Checkout", "uses": $co.uses, "with": {"persist-credentials": false}} as $plain
+| {"runs-on": "ubuntu-latest", "if": .jobs.checks.if} as $k
+| .jobs = ({
+    "pr-conventions": ($k + {"name": "PR title and linked issue", "timeout-minutes": 5,
+      "permissions": {"contents": "read", "pull-requests": "read"},
+      "steps": [$s[] | select(.name == "Check the Conventional Commits title and the closing keyword")]}),
+    "gitleaks": ($k + {"name": "Secrets (gitleaks)", "timeout-minutes": 10,
+      "steps": [$co] + [$s[] | select(.name == "Install gitleaks (pinned, sha256 verified)" or .name == "Scan the commits of the PR")]}),
+    "actionlint": ($k + {"name": "Workflows (actionlint)", "timeout-minutes": 5,
+      "steps": [$plain] + [$s[] | select(.name == "Install actionlint (pinned, sha256 verified)" or .name == "Lint the workflows")]}),
+    "lint-yaml-markdown": ($k + {"name": "YAML and Markdown lint", "timeout-minutes": 10,
+      "steps": [$plain] + [$s[] | select(.name == "Require the lint configuration files" or .name == "Set up Python"
+        or .name == "Set up Node.js" or .name == "yamllint" or .name == "markdownlint")]}),
+    "osv-scanner": ($k + {"name": "Vulnerable dependencies (osv-scanner)", "timeout-minutes": 10,
+      "steps": [$plain] + [$s[] | select(.name == "Install osv-scanner (pinned, sha256 verified)" or .name == "Scan the committed lockfiles")]}),
+    "gate-drift": ($k + {"name": "Gate copy drift", "timeout-minutes": 5, "permissions": {"contents": "read"},
+      "steps": [{"name": "Checkout the merge commit and its parents", "uses": $co.uses,
+        "with": {"fetch-depth": 2, "persist-credentials": false}}]
+        + [$s[] | select(.name == "Compare the Gate integrity copies with the public source")]})
+  } + (.jobs | del(.checks)))
+| .jobs.quality-gate.needs = (["pr-conventions", "gitleaks", "actionlint", "lint-yaml-markdown", "osv-scanner", "gate-drift"] + (.jobs.quality-gate.needs - ["checks"]))'
+
+# A repository tree: a ci.yml (none if empty) with the six common jobs, or as
+# is with a third argument `merged`, the gate-integrity workflow and its checker.
 tree() {
   local dir=$1 ci=$2
   rm -rf "$dir" && mkdir -p "$dir/.github/workflows" "$dir/.github/scripts"
-  [[ -z "$ci" ]] || cp "$ci" "$dir/.github/workflows/ci.yml"
+  if [[ "${3:-}" == merged ]]; then
+    cp "$ci" "$dir/.github/workflows/ci.yml"
+  elif [[ -n "$ci" ]]; then
+    yq "$split" "$ci" >"$dir/.github/workflows/ci.yml"
+  fi
   cp "$workflow" "$dir/.github/workflows/gate-integrity.yml"
   cp "$script" "$dir/.github/scripts/gate-integrity.sh"
 }
@@ -161,6 +192,11 @@ for t in common node flutter openapi ansible; do
   tree "$work/t-base" "$templates/ci-$t.yml"
   tree "$work/t-head" "$templates/ci-$t.yml"
   expect 0 "template ci-$t against itself" feat_pr "$script" check "$work/t-base" "$work/t-head"
+  tree "$work/t-head" "$templates/ci-$t.yml" merged
+  expect 0 "template ci-$t merged into checks, justified" justified_pr "$script" check "$work/t-base" "$work/t-head"
+  grep -q 'changed in the merge' "$work/out.txt" && fail "template ci-$t: the merge reported as changing the steps"
+  tree "$work/t-base" "$templates/ci-$t.yml" merged
+  expect 0 "template ci-$t as is against itself" feat_pr "$script" check "$work/t-base" "$work/t-head"
 done
 expect 0 "a stack job added" feat_pr check \
   "$(head_of '.jobs.extra = {"name": "Extra", "runs-on": "ubuntu-latest", "steps": [{"run": "true"}]} | .jobs.quality-gate.needs += ["extra"]')"
