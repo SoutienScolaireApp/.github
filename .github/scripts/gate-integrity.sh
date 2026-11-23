@@ -31,7 +31,8 @@
 #   security) recorded on the PR, not this script.
 set -euo pipefail
 
-readonly COMMON_JOBS=(pr-conventions gitleaks actionlint lint-yaml-markdown osv-scanner gate-drift)
+# In the order of the steps of the merged `checks` job (CHECKS_TRUSTED first).
+readonly COMMON_JOBS=(pr-conventions gitleaks actionlint osv-scanner gate-drift lint-yaml-markdown)
 COMMON_JSON=$(printf '%s\n' "${COMMON_JOBS[@]}" | jq -R . | jq -cs .)
 readonly COMMON_JSON
 # The merged shape (SoutienScolaireApp/.github#68): one `checks` job instead of
@@ -40,12 +41,20 @@ readonly COMMON_JSON
 readonly CHECKS_JOB="checks"
 # shellcheck disable=SC2016  # a literal GitHub expression, not a shell one
 readonly CHECKS_IF='${{ !cancelled() }}'
-readonly CHECKS_STEPS='["Check the Conventional Commits title and the closing keyword",
+# Steps of one job share a VM: any step can write $GITHUB_PATH or $GITHUB_ENV
+# (BASH_ENV, a fake curl or sha256sum) and so rewrite every later step. The
+# steps that run no code of the repository come right after the checkout, in
+# this order, before any other (SoutienScolaireApp/.github#77): the lint
+# steps run tools pinned by the PR and markdownlint-cli2 loads JS
+# configuration from any directory, and a repository may add its own steps.
+readonly CHECKS_TRUSTED='["Check the Conventional Commits title and the closing keyword",
   "Install gitleaks (pinned, sha256 verified)", "Scan the commits of the PR",
   "Install actionlint (pinned, sha256 verified)", "Lint the workflows",
-  "Require the lint configuration files", "Set up Python", "Set up Node.js", "yamllint", "markdownlint",
   "Install osv-scanner (pinned, sha256 verified)", "Scan the committed lockfiles",
   "Compare the Gate integrity copies with the public source"]'
+CHECKS_STEPS=$(jq -cn --argjson t "$CHECKS_TRUSTED" '$t + ["Require the lint configuration files",
+  "Set up Python", "Set up Node.js", "yamllint", "markdownlint"]')
+readonly CHECKS_STEPS
 # The docs-only step of the heavy jobs (CI.md, "Docs-only pull requests"),
 # byte for byte as in workflow-templates/ci-*.yml.
 readonly DOCS_ONLY_NAME="Detect a docs-only pull request"
@@ -98,8 +107,13 @@ readonly ACTIONS_DIR=".github/actions"
 # Configuration of the common jobs and of Dependabot: a change to any of them
 # is a gate change.
 readonly WATCHED_FILES=(.github/actionlint.yaml .github/actionlint.yml .github/dependabot.yml .github/dependabot.yaml
-  .yamllint .yamllint.yml .yamllint.yaml .markdownlint-cli2.yaml .markdownlint-cli2.jsonc .markdownlint-cli2.cjs
-  .markdownlint.yaml .markdownlint.yml .markdownlint.json .markdownlint.jsonc)
+  .yamllint .yamllint.yml .yamllint.yaml)
+# markdownlint-cli2 reads `.markdownlint-cli2.*` and `.markdownlint.*` in every
+# directory it lints, and runs the .cjs and .mjs ones and the modules named by
+# customRules, markdownItPlugins or outputFormatters: watched at any depth.
+readonly MARKDOWNLINT_NAME='.markdownlint*'
+readonly MARKDOWNLINT_MODULES_RE='customRules|markdownItPlugins|outputFormatters'
+
 # Hashed pins of the lint tools of the common jobs and of the ci-ansible
 # toolchain: a change is a gate change, except a content change in a verified
 # Dependabot PR (as for action SHAs).
@@ -260,12 +274,15 @@ common_steps() {
 }
 
 # The merged `checks` job: one pinned checkout first (full history, for the
-# gitleaks range and gate-drift's HEAD^1), no other one, every later step
-# under CHECKS_IF, and every step of the six common jobs, by name. Their
-# content is compared with the base branch like any common job.
+# gitleaks range and gate-drift's HEAD^1), then the CHECKS_TRUSTED steps in
+# their order, no other checkout, every later step under CHECKS_IF, and every
+# step of the six common jobs, by name. Their content is compared with the
+# base branch like any common job. The order is never a gate change: a step
+# before the trusted ones could disarm them, whatever the PR body says.
 check_checks_job() {
   # shellcheck disable=SC2016  # jq programs, not shell
   report_findings "Job '$CHECKS_JOB' of $CI_FILE" --arg job "$CHECKS_JOB" --arg if "$CHECKS_IF" --argjson names "$CHECKS_STEPS" \
+      --argjson trusted "$CHECKS_TRUSTED" \
       --argjson jobkeys "$JOB_KEYS" --argjson envkeys "$JOB_ENV_KEYS" --arg jobif "$JOB_IF" "$JOB_SHAPE_JQ"'
     def checkout: (.uses // "" | tostring | test("^actions/checkout@"));
     (.jobs[$job].steps // []) as $s
@@ -277,6 +294,9 @@ check_checks_job() {
       ($s[1:] | to_entries[] | select(.value.if != $if)
        | "step \(.key + 2) (\(.value.name // "unnamed" | tojson)) needs exactly if: \($if), so a failure never skips it"),
       ($names - [$s[].name] | .[] | "step \(tojson) is missing"),
+      (if [$s[1:($trusted | length) + 1][].name] != $trusted
+       then "steps 2 to \(($trusted | length) + 1) must be, in this order, \($trusted | map(tojson) | join(", ")): a step that runs code of the repository (lint, set-up, a step of the repository) comes after them"
+       else empty end),
       (.jobs[$job] | job_shape($job))' <<<"$1"
 }
 
@@ -448,6 +468,10 @@ list_files() {
   (cd "$1" && find "$2" -type f -print | sort)
 }
 
+list_markdownlint() {
+  (cd "$1" && find . -type f -name "$MARKDOWNLINT_NAME" -print | sed 's|^\./||')
+}
+
 list_workflows() {
   [[ -d "$1/.github/workflows" ]] || return 0
   (cd "$1" && find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort)
@@ -591,7 +615,8 @@ check_workflows() {
     fi
   done < <({ list_files "$base_dir" "$ACTIONS_DIR"; list_files "$head_dir" "$ACTIONS_DIR"; } | sort -u)
 
-  for path in "${WATCHED_FILES[@]}"; do
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
     if [[ -f "$base_dir/$path" && ! -f "$head_dir/$path" ]]; then
       gate_change "$path was removed (configuration of the common jobs or of Dependabot)."
     elif [[ ! -f "$base_dir/$path" && -f "$head_dir/$path" ]]; then
@@ -600,7 +625,14 @@ check_workflows() {
     elif [[ -f "$head_dir/$path" ]] && ! show_diff "base: $path" "pr: $path" "$base_dir/$path" "$head_dir/$path"; then
       gate_change "$path changed (configuration of the common jobs or of Dependabot; diff above)."
     fi
-  done
+    # The code these load is not watched: reviewed on every PR while it exists.
+    [[ -f "$head_dir/$path" && "${path##*/}" == .markdownlint* ]] || continue
+    if [[ "$path" == *.cjs || "$path" == *.mjs ]]; then
+      gate_change "$path is a JS configuration of markdownlint (code run by the CI, whose imports are not watched)."
+    elif grep -Eq "$MARKDOWNLINT_MODULES_RE" "$head_dir/$path"; then
+      gate_change "$path names $MARKDOWNLINT_MODULES_RE modules (code run by the CI, not watched)."
+    fi
+  done < <({ printf '%s\n' "${WATCHED_FILES[@]}"; list_markdownlint "$base_dir"; list_markdownlint "$head_dir"; } | sort -u)
 
   for path in "${TOOL_PIN_FILES[@]}"; do
     if [[ -f "$base_dir/$path" && ! -f "$head_dir/$path" ]]; then
@@ -764,11 +796,11 @@ extract() {
     [[ "$meta" == *" blob "* ]] || continue
     case "$path" in
       .github/workflows/*.yml | .github/workflows/*.yaml | "$INTEGRITY_SCRIPT" | "$ACTIONS_DIR"/* | .gitleaks.toml | .gitleaksignore) ;;
-      .github/actionlint.y*ml | .github/dependabot.y*ml | .yamllint* | .markdownlint*) ;;
+      .github/actionlint.y*ml | .github/dependabot.y*ml | .yamllint*) ;;
       .github/lint/requirements.txt | .github/lint/package.json | .github/lint/package-lock.json) ;;
       .github/ansible/requirements.txt) ;;
       osv-scanner.toml | */osv-scanner.toml) [[ ! "$path" =~ $SKIPPED_DIR_RE ]] || continue ;;
-      *) continue ;;
+      *) [[ "${path##*/}" == .markdownlint* ]] || continue ;;
     esac
     # git refuses such paths; never write outside the directory regardless.
     if [[ "/$path/" == *"/../"* || "/$path/" == *"/./"* || "/$path/" == *"/.git/"* || "$path" == /* ]]; then

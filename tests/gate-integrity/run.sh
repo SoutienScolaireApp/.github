@@ -445,11 +445,12 @@ rm -rf "$base/.github/actions"
 
 echo "== The merged checks job (.github#68)"
 # The six common jobs of ci-node merged into `checks`: one checkout with full
-# history, then their other steps in order, each under `if: ${{ !cancelled() }}`.
+# history, then their other steps, the steps that run no repository code first
+# (.github#77), each under `if: ${{ !cancelled() }}`.
 merge='.jobs.checks = {"name": "Common checks", "runs-on": "ubuntu-latest", "timeout-minutes": 15,
     "if": .jobs.gitleaks.if, "permissions": {"contents": "read", "pull-requests": "read"},
     "steps": ([.jobs.gitleaks.steps[0]] + [(.jobs.pr-conventions, .jobs.gitleaks, .jobs.actionlint,
-      .jobs.lint-yaml-markdown, .jobs.osv-scanner, .jobs.gate-drift) | .steps[]
+      .jobs.osv-scanner, .jobs.gate-drift, .jobs.lint-yaml-markdown) | .steps[]
       | select((.uses // "") | test("^actions/checkout@") | not)])}
   | (.jobs.checks.steps[] | select((.uses // "") | test("^actions/checkout@") | not)).if = "${{ !cancelled() }}"
   | del(.jobs.pr-conventions, .jobs.gitleaks, .jobs.actionlint, .jobs.lint-yaml-markdown, .jobs.osv-scanner, .jobs.gate-drift)
@@ -501,6 +502,47 @@ merged_hard "checks with an env expression" '.jobs.checks.env = "${{ fromJSON(va
 expect 1 "the merge with another runner, justified" justified_pr check "$(merged_head '.jobs.checks.runs-on = "self-hosted"')"
 grep -q 'job-level keys must be the template ones' "$work/out.txt" || fail "the merge with another runner: refused for another reason"
 merged_hard "checks out of the gate" '.jobs.quality-gate.needs -= ["checks"]' "Not in the 'needs:'"
+
+echo "== The order of the checks steps (.github#77)"
+osv_install='"Install osv-scanner (pinned, sha256 verified)"'
+merged_hard "osv-scanner installed after markdownlint (old order)" \
+  ".jobs.checks.steps |= ([.[] | select(.name != $osv_install)] + [.[] | select(.name == $osv_install)])" "in this order"
+merged_hard "gate-drift before osv-scanner" \
+  '.jobs.checks.steps |= (.[0:6] + [.[8]] + .[6:8] + .[9:])' "in this order"
+repo_step='{"name": "Governance checks", "if": "${{ !cancelled() }}", "run": "tests/governance/run.sh"}'
+merged_hard "a repository step before the trusted steps" ".jobs.checks.steps |= ([.[0], $repo_step] + .[1:])" "in this order"
+merged_hard "a repository step between the trusted steps" ".jobs.checks.steps |= (.[0:5] + [$repo_step] + .[5:])" "in this order"
+merged_hard "a lint step moved before the trusted steps" \
+  '.jobs.checks.steps |= ([.[0]] + [.[] | select(.name == "Set up Node.js")] + [.[1:][] | select(.name != "Set up Node.js")])' "in this order"
+expect 1 "a repository step after the trusted steps, no justification" feat_pr check_merged \
+  "$(merged_head ".jobs.checks.steps += [$repo_step]")"
+expect 0 "a repository step after the trusted steps, justified" justified_pr check_merged \
+  "$(merged_head ".jobs.checks.steps += [$repo_step]")"
+grep -q 'in this order' "$work/out.txt" && fail "a repository step after the trusted steps reported as out of order"
+
+echo "== markdownlint configuration at any depth (.github#77)"
+gate_change_case "a nested .markdownlint-cli2.cjs added" \
+  "$(head_with docs/guide/.markdownlint-cli2.cjs <<<'require("child_process").execSync("id"); module.exports = {};')"
+gate_change_case "a nested .markdownlint.mjs added" "$(head_with docs/.markdownlint.mjs <<<'export default {};')"
+gate_change_case "a nested .markdownlint.yaml added" "$(head_with docs/.markdownlint.yaml <<<'MD013: false')"
+gate_change_case "a nested .markdownlint-cli2.jsonc added" "$(head_with src/.markdownlint-cli2.jsonc <<<'{}')"
+# Present on both sides, unchanged: still reviewed, the code it loads is not watched.
+for case_ in "docs/.markdownlint.cjs|module.exports = {};" \
+    "docs/.markdownlint-cli2.yaml|customRules: [./rules/x.js]" \
+    ".markdownlint-cli2.jsonc|{ \"markdownItPlugins\": [[\"./p.js\"]] }"; do
+  path=${case_%%|*}
+  mkdir -p "$base/$(dirname "$path")"
+  printf '%s\n' "${case_#*|}" >"$base/$path"
+  head=$(head_with "$path" <<<"${case_#*|}")
+  gate_change_case "$path unchanged, loads code" "$head"
+  grep -q "$path" "$work/out.txt" || fail "$path unchanged: reported for another reason"
+  rm -f "$base/$path"
+done
+rm -rf "$base/docs"
+expect 0 "a nested .markdownlint.yaml unchanged, no module" feat_pr "$script" check \
+  "$(mkdir -p "$base/docs" && echo 'MD013: false' >"$base/docs/.markdownlint.yaml" && echo "$base")" \
+  "$(head_with docs/.markdownlint.yaml <<<'MD013: false')"
+rm -rf "$base/docs"
 
 echo "== The docs-only step of the heavy jobs (.github#68)"
 # docs_hard <label> <yq change> [<message the refusal must hold>]
