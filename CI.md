@@ -194,7 +194,7 @@ The step `Compare the Gate integrity copies with the public source` of the `chec
 - **In this repository** the step passes with a `::notice::` and fetches nothing: it is the source, a PR here legitimately differs from `develop`, and comparing `develop` with itself proves nothing. The step stays in `ci.yml` so that `checks` stays identical. Here, `tests/gate-integrity/run.sh` checks the workflow against its template.
 - **Fork PRs** skip `checks` with its fork guard: the step never fails one on its own, and `Quality Gate` stays red on a fork PR as it already does.
 - **Dependabot.** A bump of an action SHA in a repository's `gate-integrity.yml` touches that file: it fails until the same bump is on `develop` here, and it needs a hand-written `## Gate change` section in each repository, this one included (see "Action SHAs"). Merge the `.github` PR first, then re-run the job on the other PRs.
-- It runs from the PR's own `ci.yml`, so a PR can edit it: `Gate integrity` reports that as a gate change. This job detects drift, it is not a control against a hostile PR. Tests: `tests/gate-drift/run.sh`.
+- It runs from the PR's own `ci.yml`, so a PR can edit it: `Gate integrity` reports that as a gate change. This step detects drift, it is not a control against a hostile PR. Tests: `tests/gate-drift/run.sh`.
 
 ### Ignore files
 
